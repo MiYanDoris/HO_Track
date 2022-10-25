@@ -19,8 +19,8 @@ from utils import add_dict, merge_dict, ensure_dirs, cvt_numpy
 import pickle
 from copy import deepcopy
 import trimesh
-from optimization_obj import CatCS2InsCS, InsCS2CatCS, adam_obj, adam_obj_chamfer,particle_optimizer_obj, get_RT
-from optimization_hand import adam_hand, optimize_hand_joint, optimize_hand_beta
+from optimization_obj import CatCS2InsCS, InsCS2CatCS, gf_optimize_obj, get_RT
+from optimization_hand import gf_optimize_hand_pose, gf_optimize_hand_shape
 from our_mano import OurManoLayer
 from datasets.data_utils import farthest_point_sample
 
@@ -74,22 +74,14 @@ def compute_chamfer(gt_mesh, pred_mesh):
 class HandTrackModel(nn.Module):
     def __init__(self, cfg, handnet=HandBaseline, IKnet=None):
         super(HandTrackModel, self).__init__()
-        print(handnet)
-        print(f'HandTrackModel! IKNet: {IKnet is not None}')
-        print(f"HandTrackModel! Use shape code net: {cfg['use_pred_hand_shape']}")
-        print(f'HandTrackModel! Use optimization: ', cfg['network']['use_optimization'])
+        print(f'[Hand Tracking] Use IKNet: {IKnet is not None}')
+        print(f"[Hand Tracking] Use shape code: {cfg['use_pred_hand_shape']}")
+        print(f'[Hand Tracking] Use optimization: ', cfg['network']['use_optimization'])
 
-        self.handnet = handnet(cfg)
         self.use_optimization = cfg['network']['use_optimization']
         self.sdf_code_source = cfg['network']['sdf_code_source']
         self.sym = cfg['obj_sym']
         self.root_dir = cfg['data_cfg']['basepath']
-
-        if IKnet is not None:
-            self.IKnet = IKnet(cfg)
-        else:
-            self.IKnet = None
-       
         self.device = cfg['device']
         self.exp_folder = cfg['experiment_dir']
         self.save_folder = cfg['save_dir']
@@ -97,28 +89,29 @@ class HandTrackModel(nn.Module):
         self.dataset_name = cfg['data_cfg']['dataset_name']
         ensure_dirs([self.save_folder])
 
-        if self.use_optimization == 'hand':
-            self.optimizer = optimize_hand_joint(cfg)
-        elif self.use_optimization == 'adam':
-            self.optimizer = adam_hand(cfg)
-        elif self.use_optimization == False:
-            pass
+        self.handnet = handnet(cfg)
+
+        if IKnet is not None:
+            self.IKnet = IKnet(cfg)
         else:
-            raise NotImplementedError
+            self.IKnet = None
+        
+        if self.use_optimization:
+            self.optimizer = gf_optimize_hand_pose(cfg)
 
         self.use_pred_obj_pose = cfg['use_pred_obj_pose']
         if self.use_pred_obj_pose:
             print('Use pred obj pose!')
         else:
             print('Use gt obj pose!')
+
         self.use_pred_hand_shape = cfg['use_pred_hand_shape']
         if self.use_pred_hand_shape:
-            self.opt_shape = optimize_hand_beta(cfg)
+            self.opt_shape = gf_optimize_hand_shape(cfg)
             print('Use opt to get hand shape code!')
         elif self.use_pred_hand_shape == False:
-            print('not predict hand shape')
-        else:
-            raise NotImplementedError
+            print('Use gt hand shape')
+
         self.manolayer = OurManoLayer()
 
     def forward(self, input, flag_dict):
@@ -171,7 +164,7 @@ class HandTrackModel(nn.Module):
                     _, kp = self.manolayer(th_pose_coeffs=torch.zeros((1,48),device=self.device), 
                                 th_trans=torch.zeros((1,3),device=self.device),th_betas=shape_code)
                     palm_template = handkp2palmkp(kp)
-                elif self.use_pred_hand_shape == 4 and i == 0:  # use gt
+                elif self.use_pred_hand_shape == False and i == 0:  # use gt
                     shape_code = (data['gt_hand_pose']['mano_beta']).float().to(self.device)
                     palm_template = data['gt_hand_pose']['palm_template'].float().to(self.device)
                 data['pred_beta'] = shape_code
@@ -471,17 +464,10 @@ class ObjTrackModel_Optimization(nn.Module):
         self.num_parts = cfg['num_parts']
         # self.optimizer = Optimizer_obj(cfg)
         self.opti =  cfg['network']['optimizer']
-        if self.opti == 'adam_chamfer':
-            self.optimizer = adam_obj_chamfer(cfg)
-        elif self.opti == 'adam':
-            self.optimizer = adam_obj(cfg)
-        else:
-            self.optimizer = particle_optimizer_obj(cfg)
+        self.optimizer = gf_optimize_obj(cfg)
         self.sym = cfg['obj_sym']
         self.root_dir = cfg['data_cfg']['basepath']
 
-        print('Object symmetry! ', self.sym)
-        
     def forward(self, input, flag_dict):
         flag_dict['track_flag'] = True
         assert flag_dict['test_flag'] == True
@@ -628,7 +614,6 @@ class ObjTrackModel_Optimization(nn.Module):
                 ret_loss[k] = total_loss[k] / len(input)
 
         return ret_loss, ret_dict_lst
-
 
 
 

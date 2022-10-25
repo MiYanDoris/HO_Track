@@ -1,7 +1,6 @@
 import numpy as np
 import torch
-from pose_utils.rotations import matrix_to_unit_quaternion, axis_theta_to_matrix, matrix_to_axis_theta, unit_quaternion_to_matrix, normalize
-import time
+from pose_utils.rotations import unit_quaternion_to_matrix
 from DeepSDF import Decoder
 import os
 import cv2
@@ -70,29 +69,25 @@ def world2point2D(xyz, fx, fy, cx, cy):
     return point_2D # B, N, 2
 
 
-class particle_optimizer_obj():
+class gf_optimize_obj():
     def __init__(self, cfg):
-        self.update_shape_flag = cfg['network']['updateshape']
-        self.update_angle_thre = 10
 
+        # important parameters
+        self.particle_size = 2048 
+        self.iteration = 10 
+        self.scaling_coefficient1 = 0.02
+        self.scaling_coefficient2 = 2
+        self.volume_size = 201  
+        self.voxel_scale = 0.002
+        self.beta = 0.9 # don't important
+
+        self.update_shape_flag = cfg['network']['updateshape']
         self.device = cfg['device']
         latent_size = 256
         self.SDFDecoder = Decoder(latent_size, **cfg['network']["NetworkSpecs"])
         self.SDFDecoder = torch.nn.DataParallel(self.SDFDecoder)
-        
-        self.particle_size = 2048 # paper
-        self.iteration = 10 # paper
-        # self.particle_size = 10240   # try
-        # self.iteration = 20 # try
-        self.scaling_coefficient1 = 0.02
-        self.scaling_coefficient2 = 2
-        self.beta = 0.9
 
-        # self.volume_size = 201    # paper
-        # self.voxel_scale = 0.002  
-        self.volume_size = 101 
-        self.voxel_scale = 0.004
-
+        # pre-define sdf volume
         self.volume_ind = torch.arange(self.volume_size**3)[:,None].repeat(1,3)
         self.volume_ind[:, 2] = self.volume_ind[:, 2] % self.volume_size
         self.volume_ind[:, 1] = self.volume_ind[:, 1] // self.volume_size % self.volume_size
@@ -100,23 +95,14 @@ class particle_optimizer_obj():
         self.volume_ind = (self.volume_ind - self.volume_size//2) * self.voxel_scale
         self.volume_ind = self.volume_ind.to(self.device)
         self.sdf_weight = cfg['optimization']['sdf_weight']
-        self.vt_weight = cfg['optimization']['vt_weight']
-        self.vr_weight = cfg['optimization']['vr_weight']
-        self.at_weight = cfg['optimization']['at_weight']
-        self.ar_weight = cfg['optimization']['ar_weight']
         
+        # pre-sample particles
         mean = np.zeros(6)
         cov = np.eye(6) 
         self.pre_sampled_particle = np.random.multivariate_normal(mean, cov, self.particle_size)
         self.pre_sampled_particle[0,:] = 0
         self.pre_sampled_particle = torch.FloatTensor(self.pre_sampled_particle).to(self.device)
 
-        self.silhouette = cfg['optimization']['silhouette']
-        if self.silhouette:
-            self.silhouette_weight = cfg['optimization']['silhouette_weight']
-            print('add silhouette: %s' % self.silhouette)
-        else:
-            self.silhouette_weight = 0
         self.dataset_name = cfg['data_cfg']['dataset_name']
         
 
@@ -164,7 +150,6 @@ class particle_optimizer_obj():
         # inputs = torch.cat([latent_inputs, self.ins_volume_ind], 1)
         # with torch.no_grad():
         #     self.sdf_volume = SDFDecoder(inputs).reshape(self.volume_size,self.volume_size,self.volume_size) / normalization_param['scale'][0]       #[V^3, 1]
-        self.last_opt_r = init_pose['rotation'].reshape(1,3,3).cuda()
         self.latent_code_pth = latent_code_pth
         os.system(f"cp {self.latent_code_pth} {self.latent_code_pth.replace('.pth', '_update.pth')}")
         self.saved_model_pth = saved_model_pth
@@ -203,12 +188,6 @@ class particle_optimizer_obj():
         pred_2D = world2point2D(obj, self.proj['fx'][0], self.proj['fy'][0], self.proj['cx'][0], self.proj['cy'][0])   #[B, N, 2]
         index1 = torch.clamp(pred_2D[...,0].long(), 0, self.h-1)
         index2 = torch.clamp(pred_2D[...,1].long(), 0, self.w-1)
-
-        # pred_mask = np.zeros((self.h,self.w))
-        # pred_mask[index1[0].cpu().numpy(), index2[0].cpu().numpy()] = 255
-        # os.makedirs(f'vis', exist_ok=True)
-        # cv2.imwrite(f'vis/1.png', self.rgbimg + pred_mask[...,None])
-        # exit(1)
         silhouette_loss = self.gt_mask[index1, index2]
         silhouette_loss = silhouette_loss.sum(dim=-1) / pred_2D.shape[1]
         return silhouette_loss
@@ -228,18 +207,15 @@ class particle_optimizer_obj():
             self.gt_mask = maskimg==0
             self.rgbimg = rgbimg * self.gt_mask[:,:,None]
             self.gt_mask = torch.tensor(self.gt_mask).to(self.device)
-        else:
+        elif self.dataset_name == 'new_shapenet':
             silhouette_pth = '/data/h2o_data/new_sim_dataset/render/img/%s/seq/%s/mask.png' % (category, file_name)
             maskimg = cv2.imread(silhouette_pth)
             self.gt_mask = maskimg.sum(axis=-1) == 0
             self.gt_mask = torch.tensor(self.gt_mask).to(self.device)
-            # silhouette_pth = '/data/h2o_data/sim_dataset/render/Points_2D/bottle_sim/%s/%s.npy' % (file_name[:7], file_name[8:])
-            # points_dict = np.load(silhouette_pth, allow_pickle=True).item()
-            # gt_foreground = points_dict['foreground_2D'][::2]
-            # self.gt_mask = np.ones((self.h,self.w))
-            # self.gt_mask[gt_foreground[:,0].astype(np.int16), gt_foreground[:,1].astype(np.int16)] -= 1
-            # self.gt_mask = torch.tensor(self.gt_mask).to(self.device)
+        else:
+            raise NotImplementedError
         return 
+
     def Distance(self,V):
         with torch.no_grad():
             bboxMin = - 0.2
@@ -285,20 +261,14 @@ class particle_optimizer_obj():
                 + (distance[i110] * (1 - z) + distance[i111] * z) * y) * x
             dis = torch.clamp(dis,-0.05,0.05) 
         return dis
-    # def evaluate(self, pcld, r, t, old_r, old_t, old_old_r, old_old_t):   #B=particle_size N=point_size
+
     def evaluate(self, pcld, r, t):   #B=particle_size N=point_size
-        # sil loss
-        if self.silhouette:
-            sil_loss = self.get_silhouette_loss(pcld)
-        else:
-            sil_loss = 0
         # chamfer loss
         _, N, _ = pcld.shape
         pcld_flat = torch.matmul((pcld - t.transpose(-1,-2)), r).reshape(-1, 3)  
         queried_sdf = self.Distance(pcld_flat).reshape(-1, N)
         sdf_energy = torch.mean(queried_sdf.abs(), dim=-1)
-        energy = sdf_energy * self.sdf_weight + sil_loss * self.silhouette_weight
-       
+        energy = sdf_energy * self.sdf_weight
         return energy, sdf_energy
 
     def update_seach_size(self, tsdf, mean_transform):
@@ -306,7 +276,7 @@ class particle_optimizer_obj():
         search_size = tsdf * self.scaling_coefficient2 * s / s.norm() + 1e-3   
         return search_size
     
-    def optimize(self, pcld, init_obj_pose, category, file_name, projection, save=None):
+    def optimize(self, pcld, init_obj_pose, category, file_name, projection):
         rotation, translation = init_obj_pose['rotation'].float(), init_obj_pose['translation'].float()
         self.proj = projection
         self.w = projection['w'][0]
@@ -320,7 +290,6 @@ class particle_optimizer_obj():
         pcld = torch.FloatTensor(pcld.float()).to(self.device)
 
         while (True):
-            # t0 = time.time()
             if count == self.iteration:
                 break 
 
@@ -328,16 +297,14 @@ class particle_optimizer_obj():
             sample_part = self.pre_sampled_particle*search_size
             sample_qw = torch.sqrt(1-sample_part[:,0]**2-sample_part[:,1]**2-sample_part[:,2]**2).unsqueeze(1)
             sample = torch.cat([sample_qw, sample_part],dim=1)
-
             sample_r = unit_quaternion_to_matrix(sample[:, :4])
             new_r =  torch.matmul(rotation, sample_r) 
-            # angle = torch.acos((sample_r[:,0,0]+sample_r[:,1,1]+sample_r[:,2,2]-1)/2)/np.pi*180
-            # print(angle.min(), angle.max())
             new_t = translation + sample[:, 4:, None]
-            # energy, sdf_energy = self.evaluate(pcld, new_r, new_t, init_obj_pose['rotation'], init_obj_pose['translation'], init_obj_pose['prev_rotation'], init_obj_pose['prev_translation'])    #[B]
+
+            # evaluate each particle
             energy, sdf_energy = self.evaluate(pcld, new_r, new_t)    #[B]
-            # print(count, search_size, energy[0], energy.min())
-            # pick better samples
+
+            # filter good particles
             origin_energy = energy[0]
             better_mask = energy < origin_energy  #[B]
             weight = (origin_energy - energy) * better_mask      #[B]
@@ -359,31 +326,22 @@ class particle_optimizer_obj():
                 mean_transform = torch.zeros((1,7), device=self.device)
             
             # update search size
-            # search_size = self.scaling_coefficient1
             search_size = self.update_seach_size(mean_sdf, mean_transform[:,1:])
             if prev_success_flag and success_flag:
                 search_size = self.beta * search_size + (1-self.beta)*prev_search_size
-                # search_size = self.scaling_coefficient1
                 prev_search_size = search_size
             elif success_flag:
                 prev_search_size = search_size
             prev_success_flag = success_flag
 
             count += 1
-            # print(time.time()-t0)
         ret_dict = {
             'rotation': rotation,
             'translation': translation.reshape(1, 3, 1),
-            # 'scale': init_obj_pose['scale'],
-            # 'last_tsdf': next_tsdf,
         }
         
         final_pcld = torch.matmul((pcld - ret_dict['translation'].transpose(-1,-2)), ret_dict['rotation'])
-        if save is not None:
-            np.savetxt('./pcld/'+save+'.txt', final_pcld[0].detach().cpu().numpy())
 
-        # delta_r =  torch.matmul(rotation, self.last_opt_r.transpose(-1,-2)) 
-        # delta_angle = torch.acos((delta_r[:,0,0]+delta_r[:,1,1]+delta_r[:,2,2]-1)/2)/np.pi*180
         if self.update_shape_flag:
             pcld_flat = final_pcld.reshape(-1,3)
             N = pcld_flat.shape[0]
@@ -409,7 +367,6 @@ class particle_optimizer_obj():
             # update shape
             if self.obj_merge_num % 10 == 0:
                 self.update_shape()
-            # self.last_opt_r = rotation
         return ret_dict
 
     def estimate_normal(self, pc, camera):
@@ -422,13 +379,7 @@ class particle_optimizer_obj():
         normals = (2 * (normals * (camera - pc) > 0) - 1) * normals
         return normals 
 
-    def update_shape(self, 
-        num_iterations=100,
-        clamp_dist=0.2,
-        lr=1e-3,
-        l2reg=True,
-    ):
-        tstart = time.time()
+    def update_shape(self, num_iterations=100, clamp_dist=0.2, lr=1e-3, l2reg=True):
         latent_init = torch.tensor(self.latent_code, device="cuda")
         latent_init.requires_grad = True
         decoderm = self.SDFDecoder.module.cuda()
@@ -492,244 +443,3 @@ class particle_optimizer_obj():
             )
         return 
 
-
-class adam_obj():
-    def __init__(self, cfg):
-        self.update_shape_flag = False
-        self.device = cfg['device']
-        latent_size = 256
-        self.SDFDecoder = Decoder(latent_size, **cfg['network']["NetworkSpecs"])
-        self.SDFDecoder = torch.nn.DataParallel(self.SDFDecoder)
-        self.iteration = 50
-        self.dataset_name = cfg['data_cfg']['dataset_name']
-        self.lr = 1e-3
-        self.volume_size = 201
-        self.voxel_scale = 0.002
-        
-        self.volume_ind = torch.arange(self.volume_size**3)[:,None].repeat(1,3)
-        self.volume_ind[:, 2] = self.volume_ind[:, 2] % self.volume_size
-        self.volume_ind[:, 1] = self.volume_ind[:, 1] // self.volume_size % self.volume_size
-        self.volume_ind[:, 0] = self.volume_ind[:, 0] // self.volume_size // self.volume_size
-        self.volume_ind = (self.volume_ind - self.volume_size//2) * self.voxel_scale
-        self.volume_ind = self.volume_ind.to(self.device)
-
-    def load_obj(self, obj_info, instance, init_pose, init_pc):
-        latent_code_pth, normalization_param, saved_model_pth,_,_ = obj_info 
-        saved_model_state = torch.load(saved_model_pth)
-
-        self.SDFDecoder.load_state_dict(saved_model_state["model_state_dict"])
-        SDFDecoder = self.SDFDecoder.module.to(self.device)
-
-        self.latent_code = torch.load(latent_code_pth)[0][0].to(self.device) # 1, 1, L
-        if self.dataset_name == 'HO3D' or self.dataset_name == 'DexYCB': # bottle, can, box, bowl
-            self.ins_volume_ind = CatCS2InsCS(self.volume_ind, normalization_param, instance)
-        elif self.dataset_name == 'newShapeNet':
-            self.ins_volume_ind = (self.volume_ind + torch.FloatTensor(normalization_param['offset']).to(self.device))*torch.FloatTensor(normalization_param['scale']).to(self.device)
-        else:
-            raise NotImplementedError
-        voxelsdf_pth = latent_code_pth.replace('Codes', 'voxelsdf').replace('.pth', '.npy')
-        if os.path.isfile(voxelsdf_pth):
-            print('load from ',voxelsdf_pth)
-            sdfdata = np.load(voxelsdf_pth, allow_pickle=True)
-            self.sdf_volume = torch.FloatTensor(sdfdata).to(self.device)
-        else:
-        # if True:
-            with torch.no_grad():
-                piece = 10
-                all_length = self.ins_volume_ind.shape[0]
-                length = all_length // piece + 1
-                self.sdf_volume = torch.zeros((all_length, 1), dtype=torch.float16).cuda()
-                for i in range(piece):
-                    latent_inputs = self.latent_code.expand(min(all_length, (i+1)*length)-i*length, -1)
-                    inputs = torch.cat([latent_inputs, self.ins_volume_ind[i*length:min(all_length, (i+1)*length)]], 1)
-                    self.sdf_volume[i*length:min(all_length, (i+1)*length)] = SDFDecoder(inputs)
-                self.sdf_volume = self.sdf_volume.reshape(self.volume_size,self.volume_size,self.volume_size) / normalization_param['scale'][0]       #[V^3, 1]
-                os.makedirs(os.path.dirname(voxelsdf_pth), exist_ok=True)
-                np.save(voxelsdf_pth[:-4], self.sdf_volume.cpu().numpy())
-                # np.save(voxelsdf_pth[:-4], {'sdf':self.sdf_volume.cpu().numpy(),'size':self.volume_size, 'scale': self.voxel_scale})
-                print('save to ', voxelsdf_pth)
-        self.last_opt_r = init_pose['rotation'].reshape(1,3,3).cuda()
-        self.latent_code_pth = latent_code_pth
-        self.saved_model_pth = saved_model_pth
-        # self.obj_merged_pc = torch.matmul(init_pc.float() - init_pose['translation'].squeeze(-1), init_pose['rotation'].squeeze(1)).cuda()
-        self.previous_observation = torch.zeros_like(self.sdf_volume).cuda()
-        self.obj_merge_num = 1
-        self.normalization_param = normalization_param
-        self.instance = instance
-        self.sdf_volume = self.sdf_volume.reshape(-1).double()
-        self.gt = True
-        return 
-    def load_obj_oracle(self, instance):
-        import trimesh
-        gt_obj_mesh = trimesh.load(f'/data/h2o_data/HO3D/models/{instance}/textured_simple.obj')
-        gt_obj_faces = torch.LongTensor(gt_obj_mesh.faces).reshape(-1, 3).cuda()
-        gt_obj_verts = torch.FloatTensor(gt_obj_mesh.vertices).reshape(1, -1, 3).cuda()
-
-        if os.path.isfile(f'{instance}_oracle.npy'):
-            sdf = np.load(f'{instance}_oracle.npy')
-            print(f'load from {instance}_oracle.npy... size of sdf is {sdf.shape}')
-            sdf = torch.FloatTensor(sdf).to(self.device)
-        else:
-            import kaolin 
-            from kaolin.ops.mesh import index_vertices_by_faces
-            face_vertices = index_vertices_by_faces(gt_obj_verts, gt_obj_faces)
-            dis,_,_ = kaolin.metrics.trianglemesh.point_to_mesh_distance(self.volume_ind.unsqueeze(0), face_vertices)
-            sign = kaolin.ops.mesh.check_sign(gt_obj_verts, gt_obj_faces, self.volume_ind.unsqueeze(0), hash_resolution=4096)
-            sdf = torch.sqrt(dis) * (-2*sign+1)
-            np.save( f'{instance}_oracle', sdf.cpu().numpy())
-        sdf = torch.clamp(sdf, -0.1, 0.1)
-        self.sdf_volume  = sdf.reshape(self.volume_size,self.volume_size,self.volume_size)
-        self.sdf_volume = self.sdf_volume.reshape(-1).double()
-        self.gt = True 
-        print('finish loading')
-        return 
-
-    def evaluate(self, pcld, r, t):   #[B,N,3]
-        def Distance(V):
-            bboxMin = - 0.2
-            bboxRes = self.volume_size
-            stride =  self.voxel_scale
-            distance = self.sdf_volume
-            x = (V[:,0] - bboxMin) / stride
-            y = (V[:,1] - bboxMin) / stride
-            z = (V[:,2] - bboxMin) / stride
-
-            xIdx = x.data.long()
-            yIdx = y.data.long()
-            zIdx = z.data.long()
-
-            x.data -= xIdx
-            y.data -= yIdx
-            z.data -= zIdx
-            i000 = (xIdx * bboxRes + yIdx) * bboxRes + zIdx
-            i001 = i000 + 1
-            i010 = i000 + bboxRes
-            i011 = i001 + bboxRes
-            i100 = i000 + bboxRes * bboxRes
-            i101 = i001 + bboxRes * bboxRes
-            i110 = i010 + bboxRes * bboxRes
-            i111 = i011 + bboxRes * bboxRes
-            clamp_value = len(distance)
-            i000 = torch.clamp(i000, 0, clamp_value - 1).long()
-            i001 = torch.clamp(i001, 0, clamp_value - 1).long()
-            i010 = torch.clamp(i010, 0, clamp_value - 1).long()
-            i011 = torch.clamp(i011, 0, clamp_value - 1).long()
-            i100 = torch.clamp(i100, 0, clamp_value - 1).long()
-            i101 = torch.clamp(i101, 0, clamp_value - 1).long()
-            i110 = torch.clamp(i110, 0, clamp_value - 1).long()
-            i111 = torch.clamp(i111, 0, clamp_value - 1).long()
-            dis = ((distance[i000] * (1 - z) + distance[i001] * z) * (1 - y)\
-                + (distance[i010] * (1 - z) + distance[i011] * z) * y) * (1 - x)\
-                + ((distance[i100] * (1 - z) + distance[i101] * z) * (1 - y)\
-                + (distance[i110] * (1 - z) + distance[i111] * z) * y) * x
-            dis = torch.clamp(dis,-0.05,0.05).double()
-            return dis
-        pc = torch.matmul((pcld - t.transpose(-1,-2)), r)
-        if not self.gt:
-            if self.dataset_name == 'HO3D' or self.dataset_name == 'DexYCB': # bottle, can, box, bowl
-                pc_catcs = CatCS2InsCS(pc, self.normalization_param, self.instance)
-            elif self.dataset_name == 'newShapeNet':
-                pc_catcs = (pc + torch.FloatTensor(self.normalization_param['offset']).to(self.device))*torch.FloatTensor(self.normalization_param['scale']).to(self.device)
-            else:
-                raise NotImplementedError
-            pc_catcs = pc_catcs.reshape(-1,3)
-            latent_inputs = self.latent_code.expand(pc_catcs.shape[0], -1)
-            inputs = torch.cat([latent_inputs, pc_catcs], 1)
-            queried_sdf = self.SDFDecoderm(inputs) / self.normalization_param['scale'][0]       #[V^3, 1]
-        else:
-            queried_sdf = Distance(pc.reshape(-1,3))
-        
-        queried_sdf = torch.clamp(queried_sdf, -0.05, 0.05)
-        energy = torch.sum(queried_sdf.abs())
-        # os.makedirs('vis',exist_ok=True)
-        # np.savetxt(f'vis/{i}.txt', pc_catcs.cpu().detach().numpy().reshape(-1,3))
-            
-        return energy
-
-    def optimize(self, pcld, init_obj_pose, category, file_name, projection, save=None):
-        rotation, translation = init_obj_pose['rotation'].float(), init_obj_pose['translation'].float()
-        pcld = torch.FloatTensor(pcld.float()).to(self.device)
-        quat =  matrix_to_unit_quaternion(rotation)
-        quat = torch.tensor(quat, requires_grad=True)
-        t = torch.tensor(translation, requires_grad=True)
-        optimizer =  torch.optim.Adam([{'params': quat, 'lr': self.lr},{'params': t, 'lr':self.lr}])
-        if not self.gt:
-            self.SDFDecoderm.eval()
-        for i in range(self.iteration):
-            optimizer.zero_grad()
-            r = unit_quaternion_to_matrix(normalize(quat))
-            loss = self.evaluate(pcld, r, t)     #[B]
-            # if i % 10 == 0:
-                # print(i, loss)
-            loss.backward()
-            # normal = pc_catcs.grad
-            # print(pc_catcs.shape)
-            # print(normal.shape)
-            # np.savetxt('checknormal.txt', torch.cat([pc_catcs.reshape(-1,3), normal.reshape(-1,3)], dim=1).cpu().detach().numpy())
-            # exit(1)
-            # print(normal.shape)
-            optimizer.step()
-        ret_dict = {
-            'rotation': r.detach(),
-            'translation': t.detach().reshape(1, 3, 1),
-        }
-        return ret_dict
-
-
-import trimesh 
-class adam_obj_chamfer():
-    def __init__(self, cfg):
-        self.update_shape_flag = False
-        self.device = cfg['device']
-        self.iteration = 50
-        self.dataset_name = cfg['data_cfg']['dataset_name']
-        self.lr = 1e-3
-
-    def load_obj(self, obj_info, instance, init_pose, init_pc):
-        recon_path = obj_info[-1]
-        normalization_param = obj_info[1]
-        mesh = trimesh.load(recon_path) 
-        verts,_ = trimesh.sample.sample_surface(mesh, 2048)
-        verts = torch.FloatTensor(verts).cuda()
-        self.normalization_param = normalization_param
-        self.instance = instance
-        if self.dataset_name == 'HO3D' or self.dataset_name == 'DexYCB': # bottle, can, box, bowl
-            self.vertices = InsCS2CatCS(verts, self.normalization_param, self.instance)
-        elif self.dataset_name == 'newShapeNet':
-            self.vertices = verts/torch.FloatTensor(self.normalization_param['scale']).to(self.device) - torch.FloatTensor(self.normalization_param['offset']).to(self.device)
-        else:
-            raise NotImplementedError
-        return 
-    
-    def load_obj_oracle(self, instance):
-        mesh = trimesh.load(f'/data/h2o_data/HO3D/models/{instance}/textured_simple.obj') 
-        verts,_ = trimesh.sample.sample_surface(mesh, 4096)
-        self.vertices = torch.FloatTensor(verts).cuda()
-        self.instance = instance
-        return 
-
-    def evaluate(self, pcld, r, t):   #[B,N,3]
-        pc = torch.matmul((pcld - t.transpose(-1,-2)), r) #[B, N, 3]
-        queried_sdf, _ = ((pc - self.vertices.unsqueeze(1).repeat(1, pc.shape[0], 1))**2).sum(dim=-1).min(dim=0)
-        queried_sdf = torch.clamp(queried_sdf, -0.05, 0.05)
-        energy = torch.sum(queried_sdf)
-        return energy
-
-    def optimize(self, pcld, init_obj_pose, category, file_name, projection, save=None):
-        rotation, translation = init_obj_pose['rotation'].float(), init_obj_pose['translation'].float()
-        pcld = torch.FloatTensor(pcld.float()).to(self.device)
-        quat =  matrix_to_unit_quaternion(rotation)
-        quat = torch.tensor(quat, requires_grad=True)
-        t = torch.tensor(translation, requires_grad=True)
-        optimizer =  torch.optim.Adam([{'params': quat, 'lr': self.lr},{'params': t, 'lr':self.lr}])
-        for i in range(self.iteration):
-            optimizer.zero_grad()
-            r = unit_quaternion_to_matrix(normalize(quat))
-            loss = self.evaluate(pcld, r, t)     #[B]
-            loss.backward()
-            optimizer.step()
-        ret_dict = {
-            'rotation': r.detach(),
-            'translation': t.detach().reshape(1, 3, 1),
-        }
-        return ret_dict

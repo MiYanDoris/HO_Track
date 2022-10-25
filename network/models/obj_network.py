@@ -12,18 +12,15 @@ import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from backbones import PointNet2Msg_fast#, PVCNN2
-from blocks import get_point_mlp, RotationRegressor, RotationRegressor_axis, MLPConv1d
+import numpy as np
+
+from backbones import PointNet2Msg_fast
+from blocks import get_point_mlp, RotationRegressor
 from pose_utils.part_dof_utils import merge_reenact_canon_part_pose, convert_pred_rtvec_to_matrix, eval_part_full, compute_parts_delta_pose
 from pose_utils.procrustes import scale_pts_mask, translate_pts_mask, transform_pts_2d_mask, rot_around_yaxis_to_3d
 from pose_utils.pose_fit import part_fit_st_no_ransac
-from pose_utils.rotations import R3_to_matrix, matrix_to_R3
-from loss import compute_miou_loss, compute_nocs_loss, compute_part_dof_loss, compute_focal_loss
-from utils import cvt_numpy, cvt_torch
-import numpy as np
-import torch.nn.functional as F
-import time
-import cv2
+from loss import compute_miou_loss, compute_nocs_loss, compute_part_dof_loss
+from utils import cvt_torch
 from optimization_obj import get_RT,CatCS2InsCS,InsCS2CatCS
 
 EPS = 1e-6
@@ -73,8 +70,7 @@ class CoordNet(nn.Module):
             print(self.dataset_name)
             np.savetxt('unknowndataset.txt', cam[0].transpose(-1,-2).cpu().numpy())
             raise NotImplementedError
-        # np.savetxt(self.dataset_name+'.txt', cam[0].transpose(-1,-2).cpu().numpy())
-        # exit(1)
+
         feat = self.backbone(cam)  # [B, backbone_out_dim, N]
         seg = self.seg_head(feat)  # [B, P+1, N]
         seg = F.softmax(seg, dim=1)
@@ -89,8 +85,6 @@ class CoordNet(nn.Module):
                 change_axis[2,0] = 1
                 nocs = torch.matmul(change_axis[None,:].transpose(-1,-2), nocs)
             nocs = InsCS2CatCS(nocs.transpose(-1,-2), normalization_params, input['category'][0]).transpose(-1,-2)
-            # np.savetxt(self.dataset_name+'_nocs.txt', cam[0].transpose(-1,-2).cpu().numpy())
-            # exit(1)
         elif self.dataset_name == 'newShapeNet':
             pass 
         else: 
@@ -177,16 +171,6 @@ class CoordNet(nn.Module):
             loss_dict.update(pose_diff)
             loss_dict.update({f'init_{key}': value for key, value in init_pose_diff.items()})
             loss_dict.update(compute_part_dof_loss(gt_obj_poses, pred_obj_poses, self.pose_loss_type))
-
-        # gt_corners = feed_dict['meta']['obj_nocs_corners'].float().to(self.device)
-        # if self.sym:
-        #     gt_bbox = yaxis_from_corners(gt_corners, self.device)
-        # else:
-        #     gt_bbox = tensor_bbox_from_corners(gt_corners, self.device)
-        # corner_loss, corner_per_diff = compute_point_pose_loss(feed_dict['gt_part'], ret_dict['part'],
-        #                                                        gt_bbox,
-        #                                                        metric=self.pose_loss_type['point'])
-        # loss_dict['corner_loss'] = corner_loss
         return loss_dict, ret_dict
     
     def visualize(self, input, ret_dict, flag_dict):
@@ -200,7 +184,7 @@ class CoordNet(nn.Module):
             return pt_list
         cam = input['points']
         labels = ret_dict['labels']
-        #pose_diff, per_diff = eval_part_full(ret_dict['gt_obj_poses'], ret_dict['pred_obj_poses'])
+
         bb = 0
         s = []
         ss = []
@@ -413,259 +397,6 @@ class RotationNet(nn.Module):
         return
 
 
-class DoubleConv(nn.Module):
-    """(convolution => [BN] => ReLU) * 2"""
-
-    def __init__(self, in_channels, out_channels, mid_channels=None):
-        super().__init__()
-        if not mid_channels:
-            mid_channels = out_channels
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-        )
-
-    def forward(self, x):
-        return self.double_conv(x)
-
-
-class Down(nn.Module):
-    """Downscaling with maxpool then double conv"""
-
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.maxpool_conv = nn.Sequential(
-            nn.MaxPool2d(2),
-            DoubleConv(in_channels, out_channels)
-        )
-
-    def forward(self, x):
-        return self.maxpool_conv(x)
-
-
-class Up(nn.Module):
-    """Upscaling then double conv"""
-
-    def __init__(self, in_channels, out_channels, bilinear=True):
-        super().__init__()
-
-        # if bilinear, use the normal convolutions to reduce the number of channels
-        if bilinear:
-            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-            self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
-        else:
-            self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-            self.conv = DoubleConv(in_channels, out_channels)
-
-    def forward(self, x1, x2):
-        x1 = self.up(x1)
-        # input is CHW
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
-
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-                        diffY // 2, diffY - diffY // 2])
-        # if you have padding issues, see
-        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
-        x = torch.cat([x2, x1], dim=1)
-        return self.conv(x)
-
-
-class OutConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(OutConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-
-    def forward(self, x):
-        return self.conv(x)
-
-class UNet(nn.Module):
-    def __init__(self, cfg=None, bilinear=False):
-        super(UNet, self).__init__()
-        self.image_source = cfg['network']['image_source']
-        if self.image_source == 'depth':
-            print('Segment on depth!!')
-            n_channels = 1
-        elif self.image_source == 'rgb':
-            print('Segment on RGB!!')
-            n_channels = 3
-
-        self.n_classes = cfg['network']['n_classes']
-        self.bilinear = bilinear
-
-        self.inc = DoubleConv(n_channels, 64)
-        self.down1 = Down(64, 128)
-        self.down2 = Down(128, 256)
-        self.down3 = Down(256, 512)
-        factor = 2 if bilinear else 1
-        self.down4 = Down(512, 1024 // factor)
-        self.up1 = Up(1024, 512 // factor, bilinear)
-        self.up2 = Up(512, 256 // factor, bilinear)
-        self.up3 = Up(256, 128 // factor, bilinear)
-        self.up4 = Up(128, 64, bilinear)
-        self.outc = OutConv(64, self.n_classes)
-        self.device = cfg['device']
-        
-    def forward(self, data, flag_dict):
-        if self.image_source == 'rgb':
-            x = data['rgb_map'].to(self.device).float().transpose(-1, -2).transpose(-2, -3)
-        elif self.image_source == 'depth':
-            x = data['depth_map'][:, None, :, :].to(self.device).float()
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        logits = self.outc(x)
-
-        return logits
-    
-    def compute_loss(self, data, mask, flag_dict=None):
-        gt_mask = data['mask_map'].to(self.device).long()
-        CE_loss = F.cross_entropy(mask, gt_mask)
-        pred_mask = torch.max(mask, dim=1)[1]
-        # cv2.imwrite('gt_mask_0.png', gt_mask[0].cpu().numpy()*70)
-        # cv2.imwrite('pred_mask_0.png', pred_mask[0].cpu().numpy()*70)
-        gt_obj_mask = (gt_mask == 0)
-        gt_hand_mask = (gt_mask == 1)
-        gt_back_mask = (gt_mask == 2)
-
-        gt_one_hot_mask = torch.stack([gt_obj_mask, gt_hand_mask, gt_back_mask], dim=1).float()
-        focal_loss = compute_focal_loss(mask, gt_one_hot_mask)
-
-        pred_obj_mask = (pred_mask == 0)
-        pred_hand_mask = (pred_mask == 1)
-        pred_back_mask = (pred_mask == 2)
-
-        obj_iou = torch.sum((gt_obj_mask&pred_obj_mask).reshape(16, -1), dim=-1)/(torch.sum((gt_obj_mask|pred_obj_mask).reshape(16, -1), dim=-1) + EPS)
-        hand_iou = torch.sum((gt_hand_mask&pred_hand_mask).reshape(16, -1), dim=-1)/(torch.sum((gt_hand_mask|pred_hand_mask).reshape(16, -1), dim=-1)+EPS)
-        back_iou = torch.sum((gt_back_mask&pred_back_mask).reshape(16, -1), dim=-1)/(torch.sum((gt_back_mask|pred_back_mask).reshape(16, -1), dim=-1)+EPS)
-
-        loss_dict = {
-            'CE_loss': CE_loss,
-            'focal_loss': focal_loss,
-            'obj_iou': obj_iou.mean(),
-            'hand_iou': hand_iou.mean(),
-            'back_iou': back_iou.mean(),
-
-        }
-        return loss_dict, mask
-
-class Small_UNet(nn.Module):
-    def __init__(self, cfg=None):
-        super(Small_UNet, self).__init__()
-        self.image_source = cfg['network']['image_source']
-        if self.image_source == 'depth':
-            print('Segment on depth!!')
-            n_channels = 1
-        elif self.image_source == 'rgb':
-            print('Segment on RGB!!')
-            n_channels = 3
-        elif self.image_source == 'rgbd':
-            print('Segment on RGBD!!')
-            n_channels = 4
-        self.n_classes = cfg['network']['n_classes']
-        self.bilinear = cfg['network']['bilinear_up_sample']
-        factor = 2 if self.bilinear else 1
-
-        self.inc = DoubleConv(n_channels, 64)
-        self.down1 = Down(64, 128)
-        self.down2 = Down(128, 256)
-        self.down3 = Down(256, 512 // factor)
-        self.up2 = Up(512, 256 // factor, self.bilinear)
-        self.up3 = Up(256, 128 // factor, self.bilinear)
-        self.up4 = Up(128, 64, self.bilinear)
-        self.outc = OutConv(64, self.n_classes)
-        self.device = cfg['device']
-
-    def forward(self, data, flag_dict):
-        if self.image_source == 'rgb':
-            x = data['rgb_map'].to(self.device).float().transpose(-1, -2).transpose(-2, -3)
-        elif self.image_source == 'depth':
-            x = data['depth_map'][:, None, :, :].to(self.device).float()
-        elif self.image_source == 'rgbd':
-            rgb = data['rgb_map'].to(self.device).float().transpose(-1, -2).transpose(-2, -3)
-            d = data['depth_map'][:, None, :, :].to(self.device).float()
-            x = torch.cat([rgb, d], dim=1)
-        # t0 = time.time()
-        x1 = self.inc(x)
-        # t1 = time.time()
-        # print(x1.shape)
-        # print(1, t1 - t0)
-        x2 = self.down1(x1)
-        # t2 = time.time()
-        # print(x2.shape)
-        # print(2, t2 - t1)
-        x3 = self.down2(x2)
-        # t3 = time.time()
-        # print(x3.shape)
-        # print(3, t3 - t2)
-        x4 = self.down3(x3)
-        # t4 = time.time()
-        # print(x4.shape)
-        # print(4, t4 - t3)
-        x = self.up2(x4, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        logits = self.outc(x)
-        return logits
-    
-    def compute_loss(self, data, mask, flag_dict=None):
-        gt_mask = data['mask_map'].to(self.device).long()
-        CE_loss = F.cross_entropy(mask, gt_mask)
-        pred_mask = torch.max(mask, dim=1)[1]
-        # cv2.imwrite('gt_mask_0.png', gt_mask[0].cpu().numpy()*70)
-        # cv2.imwrite('pred_mask_0.png', pred_mask[0].cpu().numpy()*70)
-        gt_obj_mask = (gt_mask == 0)
-        gt_hand_mask = (gt_mask == 1)
-        gt_back_mask = (gt_mask == 2)
-
-        gt_one_hot_mask = torch.stack([gt_obj_mask, gt_hand_mask, gt_back_mask], dim=1).float()
-        focal_loss = compute_focal_loss(mask, gt_one_hot_mask)
-
-        pred_obj_mask = (pred_mask == 0)
-        pred_hand_mask = (pred_mask == 1)
-        pred_back_mask = (pred_mask == 2)
-
-        obj_iou = torch.sum((gt_obj_mask&pred_obj_mask).reshape(16, -1), dim=-1)/(torch.sum((gt_obj_mask|pred_obj_mask).reshape(16, -1), dim=-1) + EPS)
-        hand_iou = torch.sum((gt_hand_mask&pred_hand_mask).reshape(16, -1), dim=-1)/(torch.sum((gt_hand_mask|pred_hand_mask).reshape(16, -1), dim=-1)+EPS)
-        back_iou = torch.sum((gt_back_mask&pred_back_mask).reshape(16, -1), dim=-1)/(torch.sum((gt_back_mask|pred_back_mask).reshape(16, -1), dim=-1)+EPS)
-
-        loss_dict = {
-            'CE_loss': CE_loss,
-            'focal_loss': focal_loss,
-            'obj_iou': obj_iou.mean(),
-            'hand_iou': hand_iou.mean(),
-            'back_iou': back_iou.mean(),
-
-        }
-        return loss_dict, mask
-
-class Conv(nn.Module):
-    def __init__(self, in_channel, out_channel, final=False):
-        super().__init__()
-        if final:
-            self.mlp = nn.Sequential(
-                nn.Conv2d(in_channel, out_channel, kernel_size=3, padding=1)
-                )
-        else:
-            self.mlp = nn.Sequential(
-                nn.Conv2d(in_channel, out_channel, kernel_size=3, padding=1),
-                nn.BatchNorm2d(out_channel),
-                nn.ReLU(inplace=True),
-                )
-    def forward(self, x):
-        return self.mlp(x)
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='2.25_segmentation_HO3D_0.001_CE_RGB_small_norot.yml', help='path to config.yml')
@@ -675,20 +406,4 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     cfg = get_config(args)
-    # seg = Small_UNet().cuda()
-    # with torch.no_grad():
-    #     for i in range(20):
-    #         depth = torch.zeros((1, 1, 480, 640)).cuda()
-    #         input = {
-    #             'depth_map': depth
-    #         }
-    #         t0 = time.time()
-    #         output = seg(input, 0)
-    #         t1 = time.time()
-    #         print(t1 - t0)
-    # data = {}
-    # data['mask_map'] = torch.zeros((16, 480, 640)).long()
-    # loss_dict, mask = seg.compute_loss(data, output)
-    # print(loss_dict)
-    model = Small_UNet(cfg)
-    print(Small_UNet)
+   

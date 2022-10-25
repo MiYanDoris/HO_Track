@@ -19,6 +19,104 @@ def rot_diff_rad(rot1, rot2, axis=None, up_and_down_sym=False):
             if up_and_down_sym:
                 diff = torch.abs(diff)
             return torch.acos(diff)
+    
+    elif axis == 3: # box
+
+        if isinstance(rot1, np.ndarray):
+            mat_diff = np.matmul(rot1, rot2.swapaxes(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = np.clip(diff, a_min=-1.0, a_max=1.0)
+            diff_0 = np.arccos(diff)
+
+            xy_sym = np.eye(3)
+            xy_sym[0,0], xy_sym[1,1] = -1, -1
+            mat_diff = np.matmul(np.matmul(rot1, xy_sym), rot2.swapaxes(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = np.clip(diff, a_min=-1.0, a_max=1.0)
+            diff_1 = np.arccos(diff)
+
+            xz_sym = np.eye(3)
+            xz_sym[0,0], xz_sym[2,2] = -1, -1
+            mat_diff = np.matmul(np.matmul(rot1, xz_sym), rot2.swapaxes(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = np.clip(diff, a_min=-1.0, a_max=1.0)
+            diff_2 = np.arccos(diff)
+
+            yz_sym = np.eye(3)
+            yz_sym[1,1], yz_sym[2,2] = -1, -1
+            mat_diff = np.matmul(np.matmul(rot1, yz_sym), rot2.swapaxes(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = np.clip(diff, a_min=-1.0, a_max=1.0)
+            diff_3 = np.arccos(diff)
+            return np.min(np.stack([diff_0, diff_1, diff_2, diff_3], axis=-1), axis=-1)
+        else:
+            mat_diff = torch.matmul(rot1, rot2.transpose(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = torch.clamp(diff, min=-1.0, max=1.0)
+            diff_0 = torch.acos(diff)
+
+            xy_sym = torch.eye(3).to(rot1.device)
+            xy_sym[0,0], xy_sym[1,1] = -1, -1
+            mat_diff = torch.matmul(torch.matmul(rot1, xy_sym), rot2.transpose(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = torch.clamp(diff, min=-1.0, max=1.0)
+            diff_1 = torch.acos(diff)
+
+            xz_sym = torch.eye(3).to(rot1.device)
+            xz_sym[0,0], xz_sym[2,2] = -1, -1
+            mat_diff = torch.matmul(torch.matmul(rot1, xz_sym), rot2.transpose(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = torch.clamp(diff, min=-1.0, max=1.0)
+            diff_2 = torch.acos(diff)
+
+            yz_sym = torch.eye(3).to(rot1.device)
+            yz_sym[1,1], yz_sym[2,2] = -1, -1
+            mat_diff = torch.matmul(torch.matmul(rot1, yz_sym), rot2.transpose(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = torch.clamp(diff, min=-1.0, max=1.0)
+            diff_3 = torch.acos(diff)
+            return torch.min(torch.stack([diff_0, diff_1, diff_2, diff_3], dim=-1), dim=-1)[0]
+    
+    elif axis == -1: # bottle
+
+        if isinstance(rot1, np.ndarray):
+            mat_diff = np.matmul(rot1, rot2.swapaxes(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = np.clip(diff, a_min=-1.0, a_max=1.0)
+            diff_0 = np.arccos(diff)
+
+            xz_sym = np.eye(3)
+            xz_sym[0,0], xz_sym[2,2] = -1, -1
+            mat_diff = np.matmul(np.matmul(rot1, xz_sym), rot2.swapaxes(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = np.clip(diff, a_min=-1.0, a_max=1.0)
+            diff_2 = np.arccos(diff)
+            return np.min(np.stack([diff_0, diff_2], axis=-1), axis=-1)
+        else:
+            mat_diff = torch.matmul(rot1, rot2.transpose(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = torch.clamp(diff, min=-1.0, max=1.0)
+            diff_0 = torch.acos(diff)
+
+            xz_sym = torch.eye(3).to(rot1.device)
+            xz_sym[0,0], xz_sym[2,2] = -1, -1
+            mat_diff = torch.matmul(torch.matmul(rot1, xz_sym), rot2.transpose(-1, -2))
+            diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+            diff = (diff - 1) / 2.0
+            diff = torch.clamp(diff, min=-1.0, max=1.0)
+            diff_2 = torch.acos(diff)
+            return torch.min(torch.stack([diff_0, diff_2], dim=-1), dim=-1)[0]
     else:
         if isinstance(rot1, np.ndarray):
             mat_diff = np.matmul(rot1, rot2.swapaxes(-1, -2))

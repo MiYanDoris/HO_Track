@@ -11,17 +11,14 @@ import numpy as np
 base_dir = os.path.dirname(__file__)
 sys.path.append(pjoin(base_dir, '..', '..'))
 
-#from shapenet_dataset import SHAPENETDataset
-from new_shapenet_dataset import NewSHAPENETDataset
+from datasets.SimGrasp_dataset import SimGraspDataset
 from HO3D_dataset import HO3DDataset
-#from MANO_LSTM_dataset import MANO_LSTM_DATASET
-#from mano_shape_dataset import MANO_shape
 from HOI4D_dataset import HOI4DDataset
 from configs.config import get_config
 
 def choose_dataset(name):
     if name == 'newShapeNet':
-        return NewSHAPENETDataset
+        return SimGraspDataset
     elif name == 'HO3D':
         return HO3DDataset
     elif name == 'HOI4D':

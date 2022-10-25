@@ -35,8 +35,6 @@ category2scale = {
     'car_sim': 0.3,
 }
 
-
-
 def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cfg, hand_jitter_config, device, handframe, input_only, obj_path, skip_data, mano_layer_right, load_pred_obj_pose=False,pred_obj_pose_dir=None):
     '''
     input_only = 'hand' or 'obj' or 'both'
@@ -45,43 +43,6 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
     #read file
     
     cloud_dict = np.load(path, allow_pickle=True)["all_dict"].item()
-
-    # if hand_jitter_config['jitter_shape']:
-    #     mano_pose = np.array(cloud_dict['hand_pose']['mano_pose'])
-    #     hand_global_rotation = mat_from_rvec(mano_pose[:3])
-    #     mano_trans = np.array(cloud_dict['hand_pose']['mano_trans'])
-    #     mano_beta = np.array(cloud_dict['hand_pose']['mano_beta'])
-    #     pose = torch.FloatTensor(np.array(mano_pose).reshape(1, -1)).cuda()
-    #     beta = (torch.randn(size=(1, 10))*np.sqrt(3))
-    #     _, hand_kp = mano_layer_right.forward(th_pose_coeffs=pose, th_trans=torch.FloatTensor(mano_trans).reshape(1, -1).cuda(), th_betas=beta.cuda(), original_version=True)
-    #     hand_kp = hand_kp[0].cpu()      #[21,3]
-    #     world_trans = hand_kp[0]        
-    #     rest_pose = pose.clone()
-    #     rest_pose[:, :3] = 0
-    #     _, template_kp = mano_layer_right.forward(th_pose_coeffs=rest_pose, th_trans=(torch.zeros((1, 3))).cuda(), th_betas=beta.cuda())
-    #     palm_template = handkp2palmkp(template_kp)
-    #     palm_template = palm_template[0].float().cpu()
-
-    #     jittered_hand_kp = jitter_hand_kp(hand_kp, hand_jitter_config)
-    #     hand_kp = hand_kp.numpy()
-    #     jittered_hand_kp = jittered_hand_kp.numpy()
-
-    #     full_data = {
-    #         'jittered_hand_kp': jittered_hand_kp,
-    #         'gt_hand_kp': hand_kp,
-    #         'gt_hand_pose':{'translation':np.expand_dims(world_trans, axis=1),
-    #                         'scale': 0.2,
-    #                         'rotation': np.array(hand_global_rotation),
-    #                         'mano_pose':mano_pose,
-    #                         'mano_trans':mano_trans,
-    #                         'palm_template': palm_template,
-    #                         'mano_beta': beta[0],
-    #                         },
-    #         'category': category,
-    #         'file_name':cloud_dict['file_name'],
-    #     }
-
-    #     return full_data 
 
     cam = cloud_dict['points']
     label = cloud_dict['labels']
@@ -131,7 +92,8 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
     cam_points = cam[sample_idx]
     if cam_points is None:
         return None
-    #generate obj canonical point clouds
+    
+    # generate obj canonical point clouds
     obj_pose = cloud_dict['obj_pose']
     if num_parts == 1:
         obj_pose = [obj_pose]
@@ -173,7 +135,6 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
     hand_template, hand_kp = mano_layer_right.forward(th_pose_coeffs=torch.FloatTensor(np.array(mano_pose).reshape(1, -1)).cuda(),
                                             th_trans=torch.FloatTensor(mano_trans).reshape(1, -1).cuda(),
                                             th_betas=torch.FloatTensor(mano_beta).reshape(1, -1).cuda(), original_version=True)
-    # hand_template = hand_template[0].cpu()
     beta = mano_beta.reshape(1,-1)
     rest_pose = np.zeros_like(mano_pose)
     hand_kp = hand_kp[0].cpu()
@@ -276,10 +237,8 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
     #     full_data['refine_dict'] = pred_dict
     return full_data
 
-
-
-class NewSHAPENETDataset:
-    def __init__(self, cfg, mode, kind):
+class SimGraspDataset:
+    def __init__(self, cfg, mode):
         '''
         kind: 'single_frame' or 'seq'
         mode: use 'test' to replace 'val'
@@ -320,28 +279,10 @@ class NewSHAPENETDataset:
                     split_dataset(splits_folder, read_folder, test_ins_lst, train_ins_lst)
                 with open(use_txt, "r", errors='replace') as fp:
                     lines = fp.readlines()
-                    # if len(lines) % 100 != 0:
-                    #     print(use_txt)
-                    #     ins_lst = list(set([i[:5] for i in lines]))
-                    #     for ins in ins_lst:
-                    #         s = np.sum([1 for i in lines if ins in i])
-                    #         if s % 100 != 0:
-                    #             print(ins)
                     file_list = [pjoin(read_folder, i.strip()) for i in lines]
                 self.file_list.extend(file_list)
 
         self.len = len(self.file_list)
-        # if self.cfg['gt_or_recon'] == 'recon':
-        #     self.recon_dict = {}
-        #     for cat in self.obj_cat_lst:
-        #         self.recon_dict[cat] = {}
-        #         recon_folder = pjoin(self.root_dset, '..', 'reconstruction', cat, 'pc')
-        #         lst = os.listdir(recon_folder)
-        #         ins_lst = list(set([i.split('_')[0] for i in lst]))
-        #         for ins in ins_lst:
-        #             self.recon_dict[cat][ins] = []
-        #         for path in lst:
-        #             self.recon_dict[cat][path.split('_')[0] ].append(pjoin(recon_folder, path))
         print(f"mode: {mode}, kind: {self.kind}, data number: {self.len}, obj_lst: {self.obj_cat_lst}")
 
     def __getitem__(self, index):
@@ -442,72 +383,3 @@ if __name__ == '__main__':
     for i in range(5):
         data_dict = dataset[i * 2000]
         visualize_data(data_dict, 'bottle')
-
-    # N = 5000
-    # for i in tqdm(range(len(dataset) // N)):
-    #     for j in tqdm(range(100)):
-    #         mano = dataset[N * i + j]['gt_hand_pose']['mano_pose']
-    #         translation = dataset[N * i + j]['gt_hand_pose']['mano_trans']
-    #         if j > 0:
-    #             trans_diff_lst.append(translation - last_translation)
-    #             mano_diff_lst.append(mano - last_mano)
-
-    #         last_translation = translation
-    #         last_mano = mano
-    
-    # trans_array = np.array(trans_diff_lst)
-    # print(np.max(trans_array, axis=0))
-    # print(np.min(trans_array, axis=0))
-
-    # mano_array = np.array(mano_diff_lst)
-    # print(np.max(mano_array, axis=0))
-    # print(np.min(mano_array, axis=0))
-
-    # np.save('hand_trans.npy', trans_array)
-    # np.save('hand_mano.npy', mano_array)
-    
-    ''' # examine MANO PCA
-    import pickle
-    import tqdm
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--category', type=str, default='bottle_sim')
-    parser.add_argument('-s', '--split', type=int, default=255)
-    parser.add_argument('-e', '--exp', type=str, default='1.25_baseline_newiknet_optimize_test')
-    args = parser.parse_args()
-
-    folder = f'/mnt/data/hewang/h2o_data/prediction/{args.exp}/results'
-    category = args.category
-    test_split = args.split
-
-    lst = os.listdir(folder)
-    lst = [i for i in lst if int(i.split('_')[-2]) >= test_split]
-    lst.sort()
-    lst = lst[:50]
-    
-    ncomps = 6
-    mano_layer_right = ManoLayer(
-        mano_root='/home/hewang/jiayi/manopth/mano/models', side='right', use_pca=True, ncomps=ncomps,
-        flat_hand_mean=True)
-    
-    coeff = mano_layer_right.th_selected_comps
-    transform = torch.matmul(coeff.T, coeff)
-    
-    error_lst = []
-    for pkl in lst:
-        path = pjoin(folder, pkl)
-        with open(path, 'rb') as f:
-            data = pickle.load(f)
-        gt_mano = torch.zeros((100, 45))
-        for i in range(100):
-            gt_hand_pose = data['gt_hand_poses'][i]
-            gt_mano[i] = torch.FloatTensor(gt_hand_pose['mano_pose'][0][3:])
-        transformed_mano = torch.matmul(gt_mano, transform)
-        error = (transformed_mano - gt_mano).abs().mean()
-        error_lst.append(error)
-    print(np.mean(np.array(error_lst)))
-
-    # hand_vertices, kp = mano_layer_right.forward(th_pose_coeffs=torch.FloatTensor(mano_rest).unsqueeze(0))
-    # print(torch.matmul(mano_rest, transform))
-    '''
-        
-    

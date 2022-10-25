@@ -5,7 +5,6 @@ from os.path import join as pjoin
 import torch
 from network.models.our_mano import OurManoLayer
 from network.models.hand_utils import handkp2palmkp
-import open3d as o3d
 base_dir = os.path.dirname(__file__)
 sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, '..'))
@@ -76,14 +75,15 @@ def dpt_2_cld(dpt, K):
 
     return cld, choose
 
-def load_point_clouds(root_dir, seq, fID, K):
+def load_point_clouds(root_dir, seq, fID):
     path_depth = os.path.join(root_dir, 'train/%s/depth/%s.png' % (seq, fID))
     depth_raw, _ = read_depth_img(path_depth)
     if seq[-2].isnumeric():
         calibDir = os.path.join(root_dir, 'calibration', seq[:-1], 'calibration')
         K = get_intrinsics(os.path.join(calibDir, 'cam_{}_intrinsics.txt'.format(seq[-1]))).tolist()
     else:
-        K = K
+        anno = get_anno(root_dir, seq, fID)
+        K = anno['camMat']
 
     ensemble_mask_pth = os.path.join(root_dir, 'pred_mask/ensemble/%s/%s.png' % (seq, fID))
     mask = (cv2.imread(ensemble_mask_pth) / 70)[:240] # 0:obj,1:hand,2back use gt
@@ -99,7 +99,6 @@ def load_point_clouds(root_dir, seq, fID, K):
     obj_idx = (mask == 0)
     hand_pcld = cld[hand_idx]
     obj_pcld = cld[obj_idx]
-    del mask
 
     return hand_pcld, obj_pcld, K
 
@@ -114,41 +113,35 @@ def get_anno(root_dir, seq, fID):
 
     return pickle_data
 
-def generate_HO3D_data(mano_layer_right, root_dir, path, num_points, obj_perturb_cfg, hand_jitter_config, device, load_pred_obj_pose, pred_obj_pose_dir, start_frame, cur_frame, points_source=None):
+def shuffle_pcld(pcld):
+    n = pcld.shape[0]
+    perm = np.random.permutation(n)
+    pcld = pcld[perm]
+    return pcld
+
+def generate_HO3D_data(mano_layer_right, root_dir, path, num_points, obj_perturb_cfg, hand_jitter_config, device, load_pred_obj_pose, pred_obj_pose_dir, start_frame, cur_frame):
     tmp = np.load(path, allow_pickle=True)
     cloud_dict = tmp.item()
 
-    # get point cloud
+    # get intrinsics and point cloud
     seq, fID = path.split('/')[-3], path.split('/')[-1][:4]
-    if not seq[-2].isnumeric():
-        anno = get_anno(root_dir, seq, fID)
-        K = anno['camMat']
-    else:
-        K = None
-
-    hand_pcld, obj_pcld, cam_Mat = load_point_clouds(root_dir, seq, fID, K)
+    hand_pcld, obj_pcld, cam_Mat = load_point_clouds(root_dir, seq, fID)
     cam_cx, cam_cy = cam_Mat[0][2], cam_Mat[1][2]
     cam_fx, cam_fy = cam_Mat[0][0], cam_Mat[1][1]
 
-    # generate obj canonical point clouds
+    # get object pose
     origin_obj_pose = cloud_dict['obj_pose']
     obj_pose = {}
-    # obj_nocs = np.zeros_like(cam_points)
-
-    # obj_idx = np.where(seg == 0)[0]
-    # if len(obj_idx)!=0:
-    #     obj_nocs[obj_idx] = np.matmul((cam_points[obj_idx] - np.expand_dims(origin_obj_pose['translation'], 0)) / origin_obj_pose['scale'],
-    #                                 origin_obj_pose['rotation'])
     obj_pose['translation'] = np.expand_dims(np.array(origin_obj_pose['translation']), axis=1)
     obj_pose['rotation'] = origin_obj_pose['rotation']
     obj_pose['scale'] = origin_obj_pose['scale']
 
-
-    #generate hand canonical point clouds
+    # get hand pose
     mano_pose = np.array(cloud_dict['hand_pose']['pose'])
     hand_global_rotation = mat_from_rvec(mano_pose[:3])
     mano_trans = np.array(cloud_dict['hand_pose']['translation'])
-    #hand keypoints gt
+
+    # get hand keypoints gt
     reorder = [0, 13, 14, 15, 16, 1, 2, 3, 17, 4, 5, 6, 18, 10, 11, 12, 19, 7, 8, 9, 20]
     hand_kp = cloud_dict['hand_pose']['handJoints3D']
     hand_kp = hand_kp[reorder]
@@ -158,45 +151,33 @@ def generate_HO3D_data(mano_layer_right, root_dir, path, num_points, obj_perturb
     obj_dis = np.linalg.norm(obj_pcld - obj_pose['translation'].transpose(-1,-2), axis=-1)
     foreground = np.where(obj_dis < 0.25)
     obj_pcld = obj_pcld[foreground]
+
     hand_dis = np.linalg.norm(hand_pcld - hand_kp[9], axis=-1)
     foreground = np.where(hand_dis < 0.15)
     hand_pcld = hand_pcld[foreground]
-    if hand_pcld.shape[0] == 0 or obj_pcld.shape[0] == 0:
-        print(seq, fID)
-    # sampling
+
+    # point cloud downsample
     sample_idx = farthest_point_sample(hand_pcld, num_points, device)
     hand_pcld = hand_pcld[sample_idx]
 
     sample_idx = farthest_point_sample(obj_pcld, num_points, device)
     obj_pcld = obj_pcld[sample_idx]
 
-    #shuffle
-    n = obj_pcld.shape[0]
-    perm = np.random.permutation(n)
-    obj_pcld = obj_pcld[perm]
-
-    n = hand_pcld.shape[0]
-    perm = np.random.permutation(n)
-    hand_pcld = hand_pcld[perm]
+    # shuffle
+    obj_pcld = shuffle_pcld(obj_pcld)
+    hand_pcld = shuffle_pcld(hand_pcld)
     
-    #jitter hand pose and obj pose
-    
-    # if hand_jitter_config['jitter_by_MANO']:
-    #     jittered_mano, jittered_trans, jittered_beta = jitter_hand_mano(torch.FloatTensor(hand_global_rotation), np.array(mano_pose[3:]), mano_trans, mano_beta, hand_jitter_config)
-    #     _, jittered_hand_kp = mano_layer_right.forward(th_pose_coeffs=torch.FloatTensor(jittered_mano.reshape(1, -1)).cuda(),
-    #                                             th_trans=torch.FloatTensor(jittered_trans).reshape(1, -1).cuda(),
-    #                                             th_betas=torch.FloatTensor(jittered_beta).reshape(1, -1).cuda(), original_version=True)
-    #     jittered_hand_kp = jittered_hand_kp[0].cpu().numpy()
-    # else:
-    #     jittered_hand_kp = jitter_hand_kp(hand_kp, hand_jitter_config)
+    # jitter hand pose
     jittered_hand_kp = jitter_hand_kp(hand_kp, hand_jitter_config)
 
+    # get hand template
     rest_pose = torch.zeros((1, 48))
     rest_pose[0, 3:] = torch.FloatTensor(mano_pose[3:])
     _, template_kp = mano_layer_right.forward(th_pose_coeffs=rest_pose, th_trans=torch.zeros((1, 3)), th_betas=torch.FloatTensor(cloud_dict['hand_pose']['beta']).reshape(1, 10))
     palm_template = handkp2palmkp(template_kp)
     palm_template = palm_template[0].cpu().float()
 
+    # jitter obj pose
     pose_perturb_cfg = {'type': obj_perturb_cfg['type'],
                         'scale': obj_perturb_cfg['s'],
                         'translation': obj_perturb_cfg['t'],  # Now pass the sigma of the norm
@@ -206,6 +187,8 @@ def generate_HO3D_data(mano_layer_right, root_dir, path, num_points, obj_perturb
     jittered_obj_pose_lst.append(jittered_obj_pose)
     
     full_data = {
+        'points': hand_pcld,
+        'other_points': obj_pcld,
         'pred_seg_hand_points': hand_pcld,
         'pred_seg_obj_points': obj_pcld,
         'jittered_obj_pose': pose_list_to_dict(jittered_obj_pose_lst),
@@ -239,20 +222,6 @@ def generate_HO3D_data(mano_layer_right, root_dir, path, num_points, obj_perturb
         }
         full_data['pred_obj_pose'] = pred_obj_pose
 
-    if points_source == 'pred_seg_obj':
-        full_data['points'] = obj_pcld
-        full_data['labels'] = np.zeros_like(obj_pcld[:,0])
-        full_data['other_points'] = hand_pcld
-    elif points_source == 'pred_seg_hand':  
-        full_data['points'] = hand_pcld
-        full_data['other_points'] = obj_pcld
-    elif points_source == 'all':        # for captra
-        full_data['points'] = np.concatenate([obj_pcld, hand_pcld], axis=0)
-        full_data['labels'] = np.concatenate([np.zeros(len(obj_pcld)), np.ones(len(hand_pcld))], axis=0)
-        full_data['obj_nocs'] = np.zeros_like(full_data['points'])
-    else:
-        raise NotImplementedError
-
     if 'can' in full_data['category'] or 'box' in full_data['category']:
         full_data['gt_obj_pose']['up_and_down_sym'] = True
     else:
@@ -271,7 +240,6 @@ class HO3DDataset:
         self.root_dset = cfg['data_cfg']['basepath']
         self.category_lst = cfg['obj_category']
         self.load_pred_obj_pose = cfg['use_pred_obj_pose']
-        self.points_source = cfg['points_source']
         self.handframe = cfg['network']['handframe']
         if 'pred_obj_pose_dir' in cfg:
             self.pred_obj_pose_dir = cfg['pred_obj_pose_dir']
@@ -306,7 +274,7 @@ class HO3DDataset:
                     self.fID_lst.extend(idx_lst)
                     self.start_frame_lst.extend([idx_lst[0]] * len(idx_lst))
             self.seq_start.append(len(self.fID_lst))
-        elif self.kind == 'single_frame':
+        elif self.kind == 'single_frame': # for training
             for seq in test_data_dict.keys():
                 for segment in test_data_dict[seq].keys():
                     idx_lst = test_data_dict[seq][segment]
@@ -315,7 +283,7 @@ class HO3DDataset:
             if self.mode == 'test':
                 self.seq_lst = self.seq_lst[:64]
         self.len = len(self.seq_lst)
-        print('HO3D mode %s %s: %d frames, use augment: %s' % (self.mode, self.kind, self.len, self.augment))
+        print('HO3D mode %s %s: %d frames' % (self.mode, self.kind, self.len))
         
     def __getitem__(self, index):
         seq = self.seq_lst[index]
@@ -332,14 +300,11 @@ class HO3DDataset:
                                             load_pred_obj_pose=self.load_pred_obj_pose, 
                                             pred_obj_pose_dir=self.pred_obj_pose_dir,
                                             start_frame=start_frame,
-                                            cur_frame=cur_frame,
-                                            points_source=self.points_source,
-                                            handframe=self.handframe)
+                                            cur_frame=cur_frame)
         return full_data
 
     def __len__(self):
         return self.len
-
 
 def visualize_data(data_dict, category):
     from vis_utils import plot3d_pts
