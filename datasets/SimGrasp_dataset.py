@@ -146,14 +146,6 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
     palm_template = handkp2palmkp(template_kp)
     palm_template = palm_template[0].float().cpu()
 
-    #jitter hand pose and obj pose
-    # if hand_jitter_config['jitter_by_MANO']:
-    #     jittered_mano, jittered_trans, jittered_beta = jitter_hand_mano(torch.FloatTensor(hand_global_rotation), np.array(mano_pose[3:]), mano_trans, mano_beta, hand_jitter_config)
-    #     _, jittered_hand_kp = mano_layer_right.forward(th_pose_coeffs=torch.FloatTensor(jittered_mano.reshape(1, -1)).cuda(),
-    #                                             th_trans=torch.FloatTensor(jittered_trans).reshape(1, -1).cuda(),
-    #                                             th_betas=torch.FloatTensor(jittered_beta).reshape(1, -1).cuda(), original_version=True)
-    #     jittered_hand_kp = jittered_hand_kp[0].cpu().numpy()
-    # else:
     jittered_hand_kp = jitter_hand_kp(hand_kp, hand_jitter_config)
 
     pose_perturb_cfg = {'type': obj_perturb_cfg['type'],
@@ -169,9 +161,6 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
         grasptime = cloud_dict['grasptime']
     else:
         grasptime = 0
-    
-    # distance = np.min(np.linalg.norm(hand_pcd.reshape(-1, 1, 3) - hand_template.reshape(1, -1, 3), axis=-1), axis=0)
-    # visibility = distance < visible_thresh
     
     full_data = {
         'hand_points': hand_pcd,
@@ -225,16 +214,7 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
         full_obj_nocs = full_obj_nocs[idx]
         full_data['full_obj'] = full_obj_nocs[farthest_point_sample(full_obj_nocs, 1024, device)] 
         full_data['full_obj'] = np.matmul(full_data['full_obj']* category2scale[category], obj_pose[0]['rotation'].transpose(-1,-2)) + obj_pose[0]['translation'].transpose(-1,-2)
-    # for iknet
-    # if load_baseline:
-    #     pred_path = path.replace('render/preproc', 'baseline_prediction')
-    #     pred_path = pred_path.replace('seq', 'single_frame')
-    #     pred_path = pred_path.replace('.npz', '.npy')
-    #     if not os.path.isfile(pred_path):
-    #         print('No pred path! ', pred_path)
-    #         return None
-    #     pred_dict = np.load(pred_path, allow_pickle=True).item()
-    #     full_data['refine_dict'] = pred_dict
+
     return full_data
 
 class SimGraspDataset:
@@ -290,42 +270,38 @@ class SimGraspDataset:
         ins = self.file_list[index].split('/')[-1].split('_')[0]
         category = self.file_list[index].split('/')[-3]
         num_parts = self.num_parts[category]
-        if self.cfg['add_obj'] and self.cfg['gt_or_recon'] == 'recon' and ins not in self.recon_dict[category].keys():
-            print(category, ' has no reconstruction ', ins)
-            full_data = None
-        else:
-            if self.cfg['add_obj']:
-                if self.cfg['gt_or_recon'] == 'recon':
-                    if self.kind == ['seq']:
-                        #use the same instance while tracking!
-                        obj_path = self.recon_dict[category][ins][0]
-                    else:
-                        num = len(self.recon_dict[category][ins])
-                        rand_num = np.random.randint(0,num)
-                        obj_path = self.recon_dict[category][ins][rand_num]
-                elif self.cfg['gt_or_recon'] == 'gt':
-                    obj_path = pjoin(self.root_dset, '..', 'full_nocs_pc', category, ins+'.npy')
+        if self.cfg['add_obj']:
+            if self.cfg['gt_or_recon'] == 'recon':
+                if self.kind == ['seq']:
+                    #use the same instance while tracking!
+                    obj_path = self.recon_dict[category][ins][0]
                 else:
-                    raise NotImplementedError
+                    num = len(self.recon_dict[category][ins])
+                    rand_num = np.random.randint(0,num)
+                    obj_path = self.recon_dict[category][ins][rand_num]
+            elif self.cfg['gt_or_recon'] == 'gt':
+                obj_path = pjoin(self.root_dset, '..', 'full_nocs_pc', category, ins+'.npy')
             else:
-                obj_path = None
+                raise NotImplementedError
+        else:
+            obj_path = None
 
-            full_data = generate_shapenet_data(
-                                                path, 
-                                                category, 
-                                                num_parts, 
-                                                self.cfg['num_points'], 
-                                                self.cfg['obj_jitter_cfg'],
-                                                self.cfg['hand_jitter_cfg'],
-                                                self.cfg['device'], 
-                                                self.handframe,
-                                                input_only=self.cfg['input_only'],
-                                                obj_path=obj_path, 
-                                                skip_data=self.cfg['skip_data'], 
-                                                mano_layer_right=self.mano_layer_right, 
-                                                load_pred_obj_pose=self.load_pred_obj_pose,
-                                                pred_obj_pose_dir=self.pred_obj_pose_dir,
-                                                )
+        full_data = generate_shapenet_data(
+                                            path, 
+                                            category, 
+                                            num_parts, 
+                                            self.cfg['num_points'], 
+                                            self.cfg['obj_jitter_cfg'],
+                                            self.cfg['hand_jitter_cfg'],
+                                            self.cfg['device'], 
+                                            self.handframe,
+                                            input_only=self.cfg['input_only'],
+                                            obj_path=obj_path, 
+                                            skip_data=self.cfg['skip_data'], 
+                                            mano_layer_right=self.mano_layer_right, 
+                                            load_pred_obj_pose=self.load_pred_obj_pose,
+                                            pred_obj_pose_dir=self.pred_obj_pose_dir,
+                                            )
         
         return full_data
 
@@ -375,7 +351,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     cfg = get_config(args, save=False)
-    dataset = NewSHAPENETDataset(cfg, args.mode, args.kind)
+    dataset = SimGraspDataset(cfg, args.mode, args.kind)
     print(len(dataset))
     mano_diff_lst = []
     trans_diff_lst = []
