@@ -1,0 +1,22 @@
+basepath: 'HOI4D'
+dataset_name: HOI4D_seg
+hand_id: 255
+all:
+    sym: False
+    num_parts: 1
+    id: -1     # 1-254
+
+bottle:
+    sym: True
+    num_parts: 1
+    id: -1
+
+bowl:
+    sym: True
+    num_parts: 1
+    id: -1
+
+car:
+    sym: False
+    num_parts: 1
+    id: -1

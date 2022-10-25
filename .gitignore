@@ -1,0 +1,11 @@
+**/__pycache__
+*.png
+network/debug/
+.idea/
+*.npy
+*.pkl
+pymoo/
+*.obj
+**/pointnet_lib
+vis/
+network/check
