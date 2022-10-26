@@ -1,8 +1,0 @@
-basepath: 'HOI4D'
-dataset_name: HOI4D
-num_frames: 300
-
-bottle:
-    dir_name: 'C5'
-    sym: 2
-    num_parts: 1

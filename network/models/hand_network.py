@@ -43,10 +43,9 @@ def L1_loss(x, y, mask=None, check_dim_in=3):  # x,y: [B,3,x], mask: [B, 1, x]
         return (((x - y) * mask).abs().mean(dim=1).sum(dim=-1) / torch.clamp(mask.sum(dim=-1), min=1).squeeze()).mean()
 
 
-class HandBaseline(nn.Module):
+class HandTrackNet(nn.Module):
     def __init__(self, cfg):
-        super(HandBaseline, self).__init__()
-        print('HandBaseline!')
+        super(HandTrackNet, self).__init__()
         self.error = []
         for i in range(51):
             self.error.append([])

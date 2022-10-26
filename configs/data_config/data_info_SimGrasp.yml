@@ -2,6 +2,7 @@ basepath: 'new_sim_dataset/render/'
 dataset_name: newShapeNet
 num_frames: 100
 
+# NOTE: sym will be used only when evaluation. see pose_utils/metrics.py for more.
 bottle_sim:
     sym: 1
     num_parts: 1

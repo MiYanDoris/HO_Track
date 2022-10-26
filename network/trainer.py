@@ -13,7 +13,6 @@ import torch.nn.init as init
 from torch.optim import lr_scheduler
 from models.hand_network import *
 from models.track_network import *
-from models.obj_network import *
 
 from utils import update_dict, ensure_dirs
 
@@ -95,14 +94,10 @@ def get_last_model(dirname, key=""):
 
 
 def get_model_name(type_name, track):
-    if type_name == 'handbase':     # HandTrackNet
-        model = HandBaseline
+    if type_name == 'HandTrackNet':     # HandTrackNet
+        model = HandTrackNet
     elif type_name == 'iknet':      # IKNet 
         model = IKNet
-    elif type_name == 'coordnet':   # CAPTRA
-        model = CoordNet
-    elif type_name == 'rotnet':     # CAPTRA
-        model = RotationNet
     else:
         raise NotImplementedError
     return model
@@ -112,7 +107,7 @@ class Trainer(nn.Module):
         super(Trainer, self).__init__()
         self.ckpt_dir = pjoin(cfg['experiment_dir'], 'ckpt')
         ensure_dirs(self.ckpt_dir)
-        self.loss_weights = cfg['loss_weight']
+        self.loss_weights = cfg['network']['loss_weight'] if 'loss_weight' in cfg['network'].keys() else {}
         self.device = cfg['device']
 
         if cfg['track'] == 'hand':
@@ -130,28 +125,12 @@ class Trainer(nn.Module):
             self.hand_kp_resume_epoch = -1
             self.IKNet_exp_dir = pjoin(cfg['root_dir'], 'runs',cfg['IKNet_dir'], 'ckpt')
             self.IKNet_resume_epoch = -1
-        elif cfg['track'] == 'obj':
-            self.model = ObjTrackModel(cfg)
-            self.rotnet_exp_dir = pjoin(cfg['root_dir'], 'runs', cfg['rot_exp']['dir'], 'ckpt')
-            self.rotnet_resume_epoch = -1
-            self.coord_exp_dir = pjoin(cfg['root_dir'], 'runs', cfg['coord_exp']['dir'], 'ckpt')
-            self.coord_resume_epoch = -1
-            self.hand_kp_exp_dir = None
-            self.IKNet_exp_dir = None
         elif cfg['track'] == 'obj_opt':
             self.model = ObjTrackModel_Optimization(cfg)
             self.rotnet_exp_dir = None
             self.coord_exp_dir = None
             self.hand_kp_exp_dir = None
             self.IKNet_exp_dir = None
-        elif cfg['track'] == 'both':
-            self.hand_kp_exp_dir = pjoin(cfg['hand_model_exp']['dir'], 'ckpt')
-            self.hand_kp_resume_epoch = -1
-            self.coord_exp_dir = pjoin(cfg['root_dir'], 'runs',cfg['coord_exp']['dir'], 'ckpt')
-            self.coord_resume_epoch = -1
-            self.rotnet_exp_dir = pjoin(cfg['root_dir'], 'runs',cfg['rot_exp']['dir'], 'ckpt')
-            self.rotnet_resume_epoch = -1
-            raise NotImplementedError
         else:
             # for training single model
             self.model = get_model_name(cfg['network']['type'], track=False)(cfg)
@@ -223,28 +202,6 @@ class Trainer(nn.Module):
             return last_model_name
 
         ckpt = OrderedDict()
-
-        if self.coord_exp_dir is not None:
-            coord_name = get_model(self.coord_exp_dir, self.coord_resume_epoch)
-            if coord_name is None:
-                assert 0, 'Invalid CoordNet dir'
-            else:
-                print(f'Load CoordNet model from {coord_name}')
-            coord_state_dict = torch.load(coord_name, map_location=self.device)['model']
-            coord_keys = list(coord_state_dict.keys())
-            for key in coord_keys:
-                ckpt['coordnet.' + key] = coord_state_dict[key]
-                    
-        if self.rotnet_exp_dir is not None:
-            rot_name = get_model(self.rotnet_exp_dir, self.rotnet_resume_epoch)
-            if rot_name is None:
-                assert 0, 'Invalid RotNet dir'
-            else:
-                print(f'Load RotationNet model from {rot_name}')
-            rot_state_dict = torch.load(rot_name, map_location=self.device)['model']
-            rot_keys = list(rot_state_dict.keys())
-            for key in rot_keys:
-                ckpt['rotnet.' + key] = rot_state_dict[key]
 
         if self.hand_kp_exp_dir is not None:
             hand_name = get_model(self.hand_kp_exp_dir, self.hand_kp_resume_epoch)

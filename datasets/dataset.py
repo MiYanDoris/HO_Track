@@ -28,7 +28,8 @@ def choose_dataset(name):
 
 class SingleFrameData(Dataset):
     def __init__(self, cfg, mode):
-        self.dataset = choose_dataset(cfg['data_cfg']['dataset_name'])(cfg, mode=mode, kind='single_frame')
+        assert mode == 'train' or mode == 'test'
+        self.dataset = choose_dataset(cfg['data_cfg']['dataset_name'])(cfg, mode=mode)
         self.invalid_dict = {}
         self.len = len(self.dataset)
     def __len__(self):
@@ -46,7 +47,8 @@ class SingleFrameData(Dataset):
 
 class SequenceData(Dataset):
     def __init__(self, cfg, mode):
-        self.dataset = choose_dataset(cfg['data_cfg']['dataset_name'])(cfg, mode=mode, kind='seq')
+        assert mode == 'train' or mode == 'test'
+        self.dataset = choose_dataset(cfg['data_cfg']['dataset_name'])(cfg, mode=mode)
         self.dataset_name = cfg['data_cfg']['dataset_name']
         if cfg['data_cfg']['dataset_name'] in ['DexYCB', 'HO3D', 'HOI4D']:
             self.seq_start = self.dataset.seq_start[:-1]

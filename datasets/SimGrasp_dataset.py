@@ -35,7 +35,7 @@ category2scale = {
     'car_sim': 0.3,
 }
 
-def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cfg, hand_jitter_config, device, handframe, input_only, obj_path, skip_data, mano_layer_right, load_pred_obj_pose=False,pred_obj_pose_dir=None):
+def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cfg, hand_jitter_config, device, handframe, input_only, skip_data, mano_layer_right, load_pred_obj_pose=False,pred_obj_pose_dir=None):
     '''
     input_only = 'hand' or 'obj' or 'both'
     skip_data = 'hand' or 'obj' or 'both'
@@ -97,13 +97,8 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
     obj_pose = cloud_dict['obj_pose']
     if num_parts == 1:
         obj_pose = [obj_pose]
-    obj_nocs = np.zeros_like(cam_points)
 
     for i in range(num_parts):
-        obj_idx = np.where(seg == i)[0]
-        if len(obj_idx)!=0:
-            obj_nocs[obj_idx] = np.matmul((cam_points[obj_idx] - np.expand_dims(obj_pose[i]['translation'], 0)) / obj_pose[i]['scale'],
-                                      obj_pose[i]['rotation'])
         obj_pose[i]['translation'] = np.expand_dims(np.array(obj_pose[i]['translation']), axis=1)
 
     obj_idx = np.where(seg != hand_id)[0]
@@ -157,23 +152,12 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
         jittered_obj_pose = jitter_obj_pose(obj_pose[i], pose_perturb_cfg)
         jittered_obj_pose_lst.append(jittered_obj_pose)
 
-    if 'sim_dataset' in path:
-        grasptime = cloud_dict['grasptime']
-    else:
-        grasptime = 0
-    
     full_data = {
-        'hand_points': hand_pcd,
-        'obj_points': obj_pcd,
         'points': cam_points,
-        'labels': seg,  #hand-1 object-0
-        'obj_nocs': obj_nocs,
-        'hand_id': hand_id,
         'jittered_obj_pose': pose_list_to_dict(jittered_obj_pose_lst),     # list
         'gt_obj_pose': pose_list_to_dict(obj_pose),                        # list
         'jittered_hand_kp': jittered_hand_kp,
         'gt_hand_kp': hand_kp,
-        # 'jittered_hand_template': jittered_hand_template,
         'gt_hand_pose':{'translation':np.expand_dims(world_trans, axis=1),
                           'scale': 0.2,
                           'rotation': np.array(hand_global_rotation),
@@ -181,14 +165,10 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
                           'mano_trans':mano_trans,
                           'palm_template': palm_template,
                           'mano_beta': beta[0],
-                        #   'hand_template': hand_template,
-                        #   'visibility': visibility
                           },
         'category': category,
         'file_name':cloud_dict['file_name'],
-        'static_flag': int(cloud_dict['file_name'].split('_')[-1]) >= grasptime,
-        'mesh_path': '/mnt/data/hewang/h2o_data/sim_dataset/objs/%s/%s.obj' % (category, cloud_dict['file_name'].split('_')[0]),
-        'projection': { 'cx': 512/2, 'cy': 424/2, 'fx': -1.4343544 * 512/ 2.0, 'fy': 1.7320507 * 424 / 2.0, 'h': 424, 'w': 512}
+        'projection': { 'cx': 512/2, 'cy': 424/2, 'fx': -1.4343544 * 512/ 2.0, 'fy': 1.7320507 * 424 / 2.0, 'h': 424, 'w': 512}   # don't need for hand tracking
     }
     full_data['gt_obj_pose']['up_and_down_sym'] = False
     if load_pred_obj_pose:
@@ -207,30 +187,16 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
         _,full_data['OBB_pose'] = OBB(cam_points) 
         if full_data['OBB_pose']['scale'] < 0.001:
             return None 
-    if obj_path is not None:
-        #print(cloud_dict['file_name'], obj_path)
-        full_obj_nocs = np.load(obj_path)
-        idx = np.random.permutation(4096)
-        full_obj_nocs = full_obj_nocs[idx]
-        full_data['full_obj'] = full_obj_nocs[farthest_point_sample(full_obj_nocs, 1024, device)] 
-        full_data['full_obj'] = np.matmul(full_data['full_obj']* category2scale[category], obj_pose[0]['rotation'].transpose(-1,-2)) + obj_pose[0]['translation'].transpose(-1,-2)
-
+   
     return full_data
 
 class SimGraspDataset:
     def __init__(self, cfg, mode):
-        '''
-        kind: 'single_frame' or 'seq'
-        mode: use 'test' to replace 'val'
-        '''
         self.cfg = cfg
         self.root_dset = cfg['data_cfg']['basepath']
         self.obj_cat_lst = cfg['obj_category']
-        self.load_baseline = True if cfg['network']['type'] == 'iknet' else False # laod baseline
         self.load_pred_obj_pose = cfg['use_pred_obj_pose']
         self.handframe = cfg['network']['handframe']
-        # self.visible_thresh = cfg['visible_thresh']
-        self.kind = ['seq']
         if 'pred_obj_pose_dir' in cfg:
             self.pred_obj_pose_dir = cfg['pred_obj_pose_dir']
         else:
@@ -239,53 +205,35 @@ class SimGraspDataset:
         self.mano_layer_right = OurManoLayer(mano_root=cfg['mano_root'], side='right').cuda()
         self.file_list = []
         self.num_parts = {}
-        if mode == 'val':
-            mode = 'test'
         for cat in self.obj_cat_lst:
-            for k in self.kind:
-                self.num_parts[cat] = self.cfg['data_cfg'][cat]['num_parts']
-                read_folder = pjoin(self.root_dset, 'preproc', cat, k)
-                splits_folder = pjoin(self.root_dset, "splits", cat, k)
-                use_txt = pjoin(splits_folder, f"{mode}.txt")
-                splits_ready = os.path.exists(use_txt)
-                if not splits_ready:
-                    if 'train_val_split' in self.cfg['data_cfg'][cat]:
-                        split = self.cfg['data_cfg'][cat]['train_val_split']
-                        train_ins_lst = ['%05d' % i for i in range(split[0])]
-                        test_ins_lst = ['%05d' % i for i in range(split[0], split[0] + split[1])]
-                    else:
-                        train_ins_lst = None
-                        test_ins_lst = self.cfg['data_cfg'][cat]['test_list']
-                    split_dataset(splits_folder, read_folder, test_ins_lst, train_ins_lst)
-                with open(use_txt, "r", errors='replace') as fp:
-                    lines = fp.readlines()
-                    file_list = [pjoin(read_folder, i.strip()) for i in lines]
-                self.file_list.extend(file_list)
+            self.num_parts[cat] = self.cfg['data_cfg'][cat]['num_parts']
+            read_folder = pjoin(self.root_dset, 'preproc', cat, 'seq')
+            splits_folder = pjoin(self.root_dset, "splits", cat, 'seq')
+            use_txt = pjoin(splits_folder, f"{mode}.txt")
+            splits_ready = os.path.exists(use_txt)
+            if not splits_ready:
+                if 'train_val_split' in self.cfg['data_cfg'][cat]:
+                    split = self.cfg['data_cfg'][cat]['train_val_split']
+                    train_ins_lst = ['%05d' % i for i in range(split[0])]
+                    test_ins_lst = ['%05d' % i for i in range(split[0], split[0] + split[1])]
+                else:
+                    train_ins_lst = None
+                    test_ins_lst = self.cfg['data_cfg'][cat]['test_list']
+                split_dataset(splits_folder, read_folder, test_ins_lst, train_ins_lst)
+            with open(use_txt, "r", errors='replace') as fp:
+                lines = fp.readlines()
+                file_list = [pjoin(read_folder, i.strip()) for i in lines]
+            self.file_list.extend(file_list)
 
         self.len = len(self.file_list)
-        print(f"mode: {mode}, kind: {self.kind}, data number: {self.len}, obj_lst: {self.obj_cat_lst}")
+        print(f"mode: {mode}, data number: {self.len}, obj_lst: {self.obj_cat_lst}")
 
     def __getitem__(self, index):
         path = self.file_list[index]
         ins = self.file_list[index].split('/')[-1].split('_')[0]
         category = self.file_list[index].split('/')[-3]
         num_parts = self.num_parts[category]
-        if self.cfg['add_obj']:
-            if self.cfg['gt_or_recon'] == 'recon':
-                if self.kind == ['seq']:
-                    #use the same instance while tracking!
-                    obj_path = self.recon_dict[category][ins][0]
-                else:
-                    num = len(self.recon_dict[category][ins])
-                    rand_num = np.random.randint(0,num)
-                    obj_path = self.recon_dict[category][ins][rand_num]
-            elif self.cfg['gt_or_recon'] == 'gt':
-                obj_path = pjoin(self.root_dset, '..', 'full_nocs_pc', category, ins+'.npy')
-            else:
-                raise NotImplementedError
-        else:
-            obj_path = None
-
+        
         full_data = generate_shapenet_data(
                                             path, 
                                             category, 
@@ -296,7 +244,6 @@ class SimGraspDataset:
                                             self.cfg['device'], 
                                             self.handframe,
                                             input_only=self.cfg['input_only'],
-                                            obj_path=obj_path, 
                                             skip_data=self.cfg['skip_data'], 
                                             mano_layer_right=self.mano_layer_right, 
                                             load_pred_obj_pose=self.load_pred_obj_pose,
@@ -345,13 +292,12 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='2.28_hand_joint.yml', help='path to config.yml')
     parser.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
-    parser.add_argument('--kind', type=str, default='single_frame', choices=['single_frame', 'seq'])
     return parser.parse_args()
 
 if __name__ == '__main__':
     args = parse_args()
     cfg = get_config(args, save=False)
-    dataset = SimGraspDataset(cfg, args.mode, args.kind)
+    dataset = SimGraspDataset(cfg, args.mode)
     print(len(dataset))
     mano_diff_lst = []
     trans_diff_lst = []

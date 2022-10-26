@@ -8,4 +8,4 @@ pymoo/
 *.obj
 **/pointnet_lib
 vis/
-network/check
+exps/

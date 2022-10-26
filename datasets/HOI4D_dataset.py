@@ -143,18 +143,17 @@ def generate_HOI4D_data(seq, id, category, points_source, input_only, device, ma
     hand_global_rotation = mat_from_rvec(rotvec)
     
     full_data = {
-        'pred_seg_hand_points': hand_pcld,
-        'pred_seg_obj_points': obj_pcld,
+        'points': hand_pcld,
         'category': category,
         'file_name':'%s/%04d' % (seq, id),
         'gt_obj_pose':{
             'translation': trans.reshape(1, 3, 1),
             'rotation': rot.reshape(1, 3, 3),
             'up_and_down_sym': False
-        },
+        },# don't need for hand tracking
         'gt_hand_pose':{
             'mano_trans': np.array(mano_trans).reshape(3), # 3
-            'scale': 0.2,  # wrong???
+            'scale': 0.2,  
             'rotation': np.array(hand_global_rotation).reshape(1, 3, 3),
             'mano_pose':mano_para,
             'translation': global_trans,
@@ -163,10 +162,10 @@ def generate_HOI4D_data(seq, id, category, points_source, input_only, device, ma
         },
         'jittered_hand_kp': hand_kp,
         'gt_hand_kp': hand_kp,
-        'jittered_obj_pose': {  # currently, no jitter
+        'jittered_obj_pose': {  
             'translation': trans.reshape(1, 3, 1),
             'rotation': rot.reshape(1, 3, 3)
-        },
+        },# don't need for hand tracking
         'projection': {
             'cx': camMat[0, 2],
             'cy': camMat[1, 2],
@@ -174,7 +173,7 @@ def generate_HOI4D_data(seq, id, category, points_source, input_only, device, ma
             'fy': camMat[1, 1],
             'h': 1080,
             'w': 1920,
-        }
+        }# don't need for hand tracking
     }
 
     if load_pred_obj_pose:
@@ -187,18 +186,6 @@ def generate_HOI4D_data(seq, id, category, points_source, input_only, device, ma
             'translation': pred_obj_pose_lst[frame_id]['translation'].squeeze(),
         }
         full_data['pred_obj_pose'] = pred_obj_pose
-
-    if points_source == 'pred_seg_obj':
-        full_data['points'] = obj_pcld
-        full_data['other_points'] = hand_pcld
-    elif points_source == 'pred_seg_hand':  
-        full_data['points'] = hand_pcld
-        full_data['other_points'] = obj_pcld
-    elif points_source == 'all':        # for captra
-        full_data['points'] = np.concatenate([obj_pcld, hand_pcld], axis=0)
-        full_data['labels'] = np.concatenate([np.zeros(len(obj_pcld)), np.ones(len(hand_pcld))], axis=0)
-    else:
-        raise NotImplementedError
 
     return full_data
 
@@ -223,7 +210,7 @@ class HOI4DDataset:
         self.seq_start = []
         self.num_points = cfg['num_points']
         self.input_only = self.cfg['input_only']
-        self.mano_layer_right_our = OurManoLayer().cuda()
+        self.mano_layer_right_our = OurManoLayer(mano_root=cfg['mano_root'], side='right').cuda()
         self.load_pred_obj_pose = cfg['use_pred_obj_pose']
         if 'pred_obj_pose_dir' in cfg:
             self.pred_obj_pose_dir = cfg['pred_obj_pose_dir']

@@ -13,7 +13,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from hand_network import *
-from obj_network import *
 from hand_utils import  decanonicalize
 from utils import add_dict, merge_dict, ensure_dirs, cvt_numpy
 import pickle
@@ -72,14 +71,14 @@ def compute_chamfer(gt_mesh, pred_mesh):
     return chamfer_distance
 
 class HandTrackModel(nn.Module):
-    def __init__(self, cfg, handnet=HandBaseline, IKnet=None):
+    def __init__(self, cfg, handnet=HandTrackNet, IKnet=None):
         super(HandTrackModel, self).__init__()
         print(f'[Hand Tracking] Use IKNet: {IKnet is not None}')
         print(f"[Hand Tracking] Use shape code: {cfg['use_pred_hand_shape']}")
-        print(f'[Hand Tracking] Use optimization: ', cfg['network']['use_optimization'])
+        print(f'[Hand Tracking] Use optimization: ', cfg['use_optimization'])
 
-        self.use_optimization = cfg['network']['use_optimization']
-        self.sdf_code_source = cfg['network']['sdf_code_source']
+        self.use_optimization = cfg['use_optimization']
+        self.sdf_code_source = cfg['sdf_code_source']
         self.sym = cfg['obj_sym']
         self.root_dir = cfg['data_cfg']['basepath']
         self.device = cfg['device']
@@ -129,9 +128,9 @@ class HandTrackModel(nn.Module):
                                     th_trans=torch.zeros((1,3),device=self.device))
         palm_template = handkp2palmkp(canon_kp)
         
-        obj_info = load_obj_for_opt(self.root_dir, self.dataset_name, self.sdf_code_source, input[0]['file_name'][0], input[0]['category'][0])
-        if self.use_optimization:
-            self.optimizer.load_obj(obj_info[:3], input[0]['category'][0])
+        # obj_info = load_obj_for_opt(self.root_dir, self.dataset_name, self.sdf_code_source, input[0]['file_name'][0], input[0]['category'][0])
+        # if self.use_optimization:
+        #     self.optimizer.load_obj(obj_info[:3], input[0]['category'][0])
         
         ret_dict_lst = []
         for i, data in enumerate(input):
@@ -194,11 +193,11 @@ class HandTrackModel(nn.Module):
                 # this trick is important for fast motion
                 last_frame_kp = deepcopy(ret_dict['pred_kp'] - data['points'].mean(dim=-2, keepdim=True).to(self.device).float())
 
-            if i == 0:
-                ret_dict['obj_info'] = {}
-                ret_dict['obj_info']['recon_path'] = obj_info[4]
-                ret_dict['obj_info']['recon_scale'] = np.array([obj_info[1]['scale'][0]])
-                ret_dict['obj_info']['gt_path'] = obj_info[3]
+            # if i == 0:
+            #     ret_dict['obj_info'] = {}
+            #     ret_dict['obj_info']['recon_path'] = obj_info[4]
+            #     ret_dict['obj_info']['recon_scale'] = np.array([obj_info[1]['scale'][0]])
+            #     ret_dict['obj_info']['gt_path'] = obj_info[3]
             ret_dict_lst.append(ret_dict)
 
         return ret_dict_lst
@@ -249,9 +248,9 @@ class HandTrackModel(nn.Module):
                     cur_frame['baseline_pred_kp'] = ret_dict_lst[i]['baseline_pred_kp']
                 if self.use_pred_obj_pose:
                     cur_frame['pred_obj_poses'] = deepcopy(data['pred_obj_pose'])
-                if i == 0:
-                    cur_frame['obj_info'] = ret_dict_lst[0]['obj_info']
-                    cur_frame['camera_intrinsic'] = data['projection']
+                # if i == 0:
+                #     cur_frame['obj_info'] = ret_dict_lst[0]['obj_info']
+                #     cur_frame['camera_intrinsic'] = data['projection']
                 merge_dict(save_dict, cur_frame)
             
         if save_flag:
@@ -299,164 +298,13 @@ class HandTrackModel(nn.Module):
             self.handnet.visualize(data, ret_dict_lst[i], flag_dict)
         return
 
-class ObjTrackModel(nn.Module):
-    def __init__(self, cfg):
-        super(ObjTrackModel, self).__init__()
-        self.exp_folder = cfg['experiment_dir']
-        self.save_folder = cfg['save_dir']
-        self.dataset_name = cfg['data_cfg']['dataset_name']
-        ensure_dirs([self.save_folder])
-        self.coordnet = CoordNet(cfg)
-        self.rotnet = RotationNet(cfg)
-        self.num_parts = cfg['num_parts']
-        self.device = cfg['device']
-        self.sdf_code_source = cfg['network']['sdf_code_source']
-        self.sym = cfg['obj_sym']
-        self.root_dir = cfg['data_cfg']['basepath']
-        
-    def forward(self, input, flag_dict):
-        flag_dict['track_flag'] = True
-        assert flag_dict['test_flag'] == True
-
-        last_frame_poses = None
-        ret_dict_lst = []
-        for i, data in enumerate(input):
-            if last_frame_poses is not None:
-                data['jittered_obj_pose'] = last_frame_poses
-            
-            ret_dict = self.coordnet(data, flag_dict)
-
-            if self.dataset_name == 'HO3D' or self.dataset_name == 'DexYCB' or self.dataset_name == 'newShapeNet':
-                ret_dict['pred_labels'] = data['labels'].long().to(self.device)
-            else:
-                raise NotImplementedError
-
-            obj_idx = torch.where(ret_dict['pred_labels'] < self.num_parts)[1]     #NOTICE!! Make sure obj_labels < num_parts
-            if len(obj_idx) == 0:
-                print('The %d th frame has no object!' % (i))
-                ret_dict_lst.append(ret_dict_lst[-1])
-                continue 
-            data['obj_points'] = data['points'][..., obj_idx, :]    
-            data['pred_labels'] = ret_dict['pred_labels'][..., obj_idx] 
-            data['pred_nocs'] = ret_dict['pred_nocs'][..., obj_idx] 
-
-
-            ret_dict2 = self.rotnet(data, flag_dict)
-
-            for k in ret_dict2.keys():
-                ret_dict[k] = ret_dict2[k]
-            last_frame_poses = deepcopy(ret_dict['pred_obj_poses'])
-            # if last_frame_poses['scale'] == 0:
-                # print('wrong!')
-            ret_dict_lst.append(ret_dict)
-        return ret_dict_lst
-
-    def compute_loss(self, input, ret_dict_lst, flag_dict):
-        save_flag = flag_dict['save_flag']
-        flag_dict['track_flag'] = True 
-        assert flag_dict['test_flag'] == True
-        
-        # load obj info for chamfer loss
-        obj_info = load_obj_for_opt(self.root_dir, self.dataset_name, self.sdf_code_source, input[0]['file_name'][0], input[0]['category'][0])
-        pred_mesh = torch.FloatTensor(np.asarray(trimesh.load(obj_info[4]).vertices)).to(self.device)
-        gt_mesh = trimesh.sample.sample_surface(trimesh.load(obj_info[3]), 2048)[0]
-        gt_mesh = torch.FloatTensor(gt_mesh).to(self.device)
-        if len(pred_mesh) > 2048:
-            sample_idx = farthest_point_sample(pred_mesh, 2048, self.device)
-            pred_mesh = pred_mesh[sample_idx]
-        if self.sdf_code_source != 'gt':
-            if self.dataset_name == 'HO3D' or self.dataset_name == 'DexYCB':
-                pred_mesh = InsCS2CatCS(pred_mesh, obj_info[1], input[0]['category'][0])
-            else:
-                pred_mesh = pred_mesh / torch.FloatTensor(obj_info[1]['scale']).to(self.device) - torch.FloatTensor(obj_info[1]['offset']).to(self.device)  
-
-        # ret_dict_lst will update itself
-        total_loss = {}
-        save_dict = {}
-        for i, data in enumerate(input):
-            for key in data['gt_obj_pose'].keys():
-                if key == 'up_and_down_sym':
-                    continue
-                data['gt_obj_pose'][key] = torch.FloatTensor(data['gt_obj_pose'][key].float()).to(self.device)
-                ret_dict_lst[i][key] = ret_dict_lst[i]['pred_obj_poses'][key]
-            #ret_dict_lst[i]['scale'] = np.array([ret_dict_lst[0]['scale']])
-
-            # for symmetry, we should evaluate category level object pose
-            if self.dataset_name == 'HO3D' or self.dataset_name == 'DexYCB':
-                R, T  = get_RT(input[0]['category'][0])
-                R = torch.FloatTensor(R).to(self.device)[None,None,:,:]
-                T = torch.FloatTensor(T).to(self.device)[None,None,:,None]
-                eval_gt_obj_pose = {'rotation': torch.matmul(data['gt_obj_pose']['rotation'], R.transpose(-1,-2))}
-                eval_gt_obj_pose['translation'] =  data['gt_obj_pose']['translation'] - torch.matmul(eval_gt_obj_pose['rotation'], T)
-
-                eval_pred_obj_pose = {'rotation': torch.matmul(ret_dict_lst[i]['rotation'], R.transpose(-1,-2))}
-                eval_pred_obj_pose['translation'] = ret_dict_lst[i]['translation'] - torch.matmul(eval_pred_obj_pose['rotation'], T)
-            else:
-                eval_gt_obj_pose = data['gt_obj_pose']
-                eval_pred_obj_pose = ret_dict_lst[i]
-            
-            loss_dict, _ = eval_part_full(eval_gt_obj_pose, eval_pred_obj_pose, axis=int(self.sym), up_and_down_sym=data['gt_obj_pose']['up_and_down_sym']) # B,x,x
-            loss_dict['raw_obj_chamfer(mm)'] = compute_chamfer(gt_mesh, pred_mesh) * 1000
-            transformed_gt_mesh = torch.matmul(gt_mesh.clone(), data['gt_obj_pose']['rotation'].squeeze().transpose(-1,-2)) + data['gt_obj_pose']['translation'].squeeze()
-            transformed_pred_mesh = torch.matmul(pred_mesh.clone(), ret_dict_lst[i]['rotation'].squeeze().transpose(-1,-2)) + ret_dict_lst[i]['translation'].squeeze()
-            loss_dict['pred_obj_chamfer(mm)'] = compute_chamfer(transformed_gt_mesh, transformed_pred_mesh) * 1000
-            
-            add_dict(total_loss, loss_dict)
-            if save_flag:
-                merge_dict(save_dict, {'gt_hand_poses':data['gt_hand_pose'],
-                        'gt_obj_poses':data['gt_obj_pose'],
-                         'pred_obj_poses': ret_dict_lst[i], 
-                         'file_name': data['file_name'],
-                         't_error_0': deepcopy(loss_dict['tdiff_0']), 
-                         'r_error_0':deepcopy(loss_dict['rdiff_0']), 
-                        })
-        if save_flag:
-            if self.dataset_name == 'HO3D':
-                save_name = input[0]['file_name'][0] + '.pkl'
-                save_name = save_name.replace('/', '_')
-                save_dict['CAD_ID'] = input[0]['category'][0]
-                with open(pjoin(self.save_folder, save_name), 'wb') as f:
-                    save_dict = cvt_numpy(save_dict)
-                    pickle.dump(save_dict, f)
-            elif self.dataset_name == 'DexYCB':
-                save_name = input[0]['file_name'][0].replace('/', '_') + '.pkl'
-                save_dict['CAD_ID'] = input[0]['category'][0]
-                with open(pjoin(self.save_folder, save_name), 'wb') as f:
-                    save_dict = cvt_numpy(save_dict)
-                    pickle.dump(save_dict, f)
-            else:
-                save_name = input[0]['category'][0] + '_' + input[0]['file_name'][0][:-4] + '.pkl'
-                with open(pjoin(self.save_folder, save_name), 'wb') as f:
-                    save_dict = cvt_numpy(save_dict)
-                    pickle.dump(save_dict, f)
-
-        ret_loss = {}
-        for k in total_loss.keys():
-            if 'init' not in k:
-                ret_loss[k] = total_loss[k] / len(input)
-
-        return ret_loss, ret_dict_lst
-
-    def visualize(self, input, ret_dict_lst, flag_dict):
-        save_flag = flag_dict['save_flag']
-        flag_dict['track_flag'] = True 
-        assert flag_dict['test_flag'] == True
-
-        for i, data in enumerate(input):
-            loss_dict, _ = self.coordnet.compute_loss(data, ret_dict_lst[i], flag_dict)
-            
-            for key, value in loss_dict.items():
-                print('{}: {}'.format(key, value))
-            self.coordnet.visualize(data, ret_dict_lst[i], save_flag)
-        return
-
 class ObjTrackModel_Optimization(nn.Module):
     def __init__(self, cfg):
         super(ObjTrackModel_Optimization, self).__init__()
         self.exp_folder = cfg['experiment_dir']
         self.save_folder = cfg['save_dir']
         self.dataset_name = cfg['data_cfg']['dataset_name']
-        self.sdf_code_source = cfg['network']['sdf_code_source']
+        self.sdf_code_source = cfg['sdf_code_source']
 
         self.device = cfg['device']
         ensure_dirs([self.save_folder])

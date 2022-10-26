@@ -30,19 +30,7 @@ def choose_one_valid_path(path_lst):
 
 def get_config(args, save=True):
     base_path = os.path.dirname(__file__)
-    if 'test' in args.config:
-        if 'HO3D' in args.config:
-            f = open(pjoin(base_path, 'test_config', 'HO3D', args.config), 'r')
-        elif 'HOI4D' in args.config:
-            f = open(pjoin(base_path, 'test_config', 'HOI4D', args.config), 'r')
-        elif 'DexYCB' in args.config:
-            f = open(pjoin(base_path, 'test_config', 'DexYCB', args.config), 'r')
-        elif 'sim' in args.config:
-            f = open(pjoin(base_path, 'test_config', 'sim', args.config), 'r')
-        else:
-            f = open(pjoin(base_path, 'test_config', args.config), 'r')
-    else:
-        f = open(pjoin(base_path, 'all_config', args.config), 'r')
+    f = open(pjoin(base_path, 'all_config', args.config), 'r')
     cfg = yaml.load(f, Loader=yaml.FullLoader)
     
     """ Update info from command line """
@@ -66,7 +54,7 @@ def get_config(args, save=True):
         cfg['pointnet'][key] = yaml.load(f, Loader=yaml.FullLoader)
 
     """ Save config """
-    root_list = ['/scratch/generalvision/h2o_data', '/home/hewang/Desktop/data/jiayi/h2o_data', '/data/h2o_data','/data1/h2o_data']
+    root_list = ['exps']
     root = choose_one_valid_path(root_list)
     cfg['root_dir'] = root 
     if 'save_dir' not in cfg:

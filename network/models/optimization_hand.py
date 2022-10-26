@@ -158,10 +158,10 @@ class gf_optimize_hand_pose():
         print('Need to optimize %d dims' % self.optimize_dim)
 
         #parameters
-        self.particle_size = cfg['network']['particle_size']
-        self.iteration = cfg['network']['iterations']
+        self.particle_size = 5120
+        self.iteration = 5
         self.root_dir = cfg['data_cfg']['basepath']
-        self.loss_weight = cfg['loss_weight']
+        self.loss_weight = cfg['opt']['loss_weight']
         self.device = cfg['device']
         self.theta_scale = 30  
         self.beta = 0.9
@@ -193,7 +193,7 @@ class gf_optimize_hand_pose():
 
         # DeepSDF for object
         latent_size = 256
-        self.SDFDecoder = Decoder(latent_size, **cfg['network']["NetworkSpecs"])
+        self.SDFDecoder = Decoder(latent_size, **cfg['opt']["NetworkSpecs"])
         self.SDFDecoder = torch.nn.DataParallel(self.SDFDecoder)
         
         # pre-defined variables for voxelization

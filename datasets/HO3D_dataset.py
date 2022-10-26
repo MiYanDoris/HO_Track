@@ -188,9 +188,6 @@ def generate_HO3D_data(mano_layer_right, root_dir, path, num_points, obj_perturb
     
     full_data = {
         'points': hand_pcld,
-        'other_points': obj_pcld,
-        'pred_seg_hand_points': hand_pcld,
-        'pred_seg_obj_points': obj_pcld,
         'jittered_obj_pose': pose_list_to_dict(jittered_obj_pose_lst),
         'gt_obj_pose': pose_list_to_dict([obj_pose]),
         'jittered_hand_kp': jittered_hand_kp,
@@ -206,7 +203,7 @@ def generate_HO3D_data(mano_layer_right, root_dir, path, num_points, obj_perturb
                         },
         'category': cloud_dict['obj_pose']['CAD_ID'],
         'file_name':cloud_dict['file_name'],
-        'projection': {'w':640, 'h':480, 'fx':-cam_fx,'fy':cam_fy,'cx':cam_cx,'cy':cam_cy},
+        'projection': {'w':640, 'h':480, 'fx':-cam_fx,'fy':cam_fy,'cx':cam_cx,'cy':cam_cy},     # don't need for hand tracking
     }
 
     if load_pred_obj_pose:
@@ -230,11 +227,7 @@ def generate_HO3D_data(mano_layer_right, root_dir, path, num_points, obj_perturb
     return full_data
 
 class HO3DDataset:
-    def __init__(self, cfg, mode, kind):
-        '''
-            kind: 'single_frame' or 'seq'
-            mode: use 'test' to replace 'val'
-        '''
+    def __init__(self, cfg, mode):
         print('HO3DDataset!')
         self.cfg = cfg
         self.root_dset = cfg['data_cfg']['basepath']
@@ -246,14 +239,13 @@ class HO3DDataset:
         else:
             self.pred_obj_pose_dir = None
 
-        self.mode = 'test' if mode == 'val' else mode
-        self.kind = kind
+        self.mode = mode 
 
         self.seq_lst = []
         self.fID_lst = []
         self.seq_start = []
         self.start_frame_lst = []
-        self.mano_layer_right = OurManoLayer()
+        self.mano_layer_right = OurManoLayer(mano_root=cfg['mano_root'], side='right')
         test_data_dict = {}
 
         # Load sequence information from the split file
@@ -264,24 +256,15 @@ class HO3DDataset:
             for key, value in tmp_dict.items():
                 test_data_dict[key] = value
         
-        # Load data in sequence setting or single frame setting
-        if self.kind == 'seq':
-            for seq in test_data_dict.keys():
-                for segment in test_data_dict[seq].keys():
-                    idx_lst = test_data_dict[seq][segment]
-                    self.seq_start.append(len(self.fID_lst))
-                    self.seq_lst.extend([seq] * len(idx_lst))
-                    self.fID_lst.extend(idx_lst)
-                    self.start_frame_lst.extend([idx_lst[0]] * len(idx_lst))
-            self.seq_start.append(len(self.fID_lst))
-        elif self.kind == 'single_frame': # for training
-            for seq in test_data_dict.keys():
-                for segment in test_data_dict[seq].keys():
-                    idx_lst = test_data_dict[seq][segment]
-                    self.seq_lst.extend([seq] * len(idx_lst))
-                    self.fID_lst.extend(idx_lst)
-            if self.mode == 'test':
-                self.seq_lst = self.seq_lst[:64]
+        for seq in test_data_dict.keys():
+            for segment in test_data_dict[seq].keys():
+                idx_lst = test_data_dict[seq][segment]
+                self.seq_start.append(len(self.fID_lst))
+                self.seq_lst.extend([seq] * len(idx_lst))
+                self.fID_lst.extend(idx_lst)
+                self.start_frame_lst.extend([idx_lst[0]] * len(idx_lst))
+        self.seq_start.append(len(self.fID_lst))
+        
         self.len = len(self.seq_lst)
         print('HO3D mode %s %s: %d frames' % (self.mode, self.kind, self.len))
         
