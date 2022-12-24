@@ -154,8 +154,6 @@ class gf_optimize_obj():
         os.system(f"cp {self.latent_code_pth} {self.latent_code_pth.replace('.pth', '_update.pth')}")
         self.saved_model_pth = saved_model_pth
         self.obj_merged_pc = torch.matmul(init_pc.float() - init_pose['translation'].squeeze(-1), init_pose['rotation'].squeeze(1)).cuda()
-        # self.previous_observation = torch.zeros_like(self.sdf_volume).cuda()
-        # self.update_previous_observation(self.obj_merged_pc)
         self.obj_merged_pc = CatCS2InsCS(self.obj_merged_pc, normalization_param, instance)
         camera = torch.matmul(torch.zeros((1,1,3)) - init_pose['translation'].squeeze(-1), init_pose['rotation'].squeeze(1)).cuda()
         camera = CatCS2InsCS(camera, normalization_param, instance)
@@ -416,8 +414,6 @@ class gf_optimize_obj():
             loss = torch.mean(loss)
             if l2reg:
                 loss += 1e-4 * torch.mean(latent_init.pow(2))
-            # if (e+1) % 10 == 0:
-                # print(e, loss)
             loss.backward()
             optimizer.step()
         self.latent_code = latent_init.detach()

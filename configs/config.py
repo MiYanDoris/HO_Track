@@ -89,8 +89,7 @@ def get_config(args, save=True):
 
     cfg["data_cfg"] = data_cfg
     cfg["device"] = torch.device("cuda:%d" % cfg['cuda_id']) if torch.cuda.is_available() else "cpu"
-    mano_path_lst = ['/home/hewang/Desktop/jiayi/manopth/mano/models', '/scratch/chenjiayi/manopth/mano/models',
-                        '/home/jiayichen/manopth/mano/models']
+    mano_path_lst = ['third_party/mano/model']
     cfg['mano_root'] = choose_one_valid_path(mano_path_lst)
     cfg['data_cfg']['basepath'] = pjoin(root, cfg['data_cfg']['basepath'])
     print("Running on ", cfg["device"])

@@ -36,7 +36,6 @@ This is the PyTorch implementation of [our paper](https://arxiv.org/abs/2209.120
 
 ## Running
 + Somethings you should notice
-  + We leave some code about HOI4D for your convenience but we don't use them for a long time and there must be some bugs. You'd better check carefully.
   + We reimplement ManoLayer in `network/models/our_mano.py` since original version has a small problem that the hand root is not in origin even if translation=0. This is very important and please be careful about ManoLayer. If you want to use the original version, just set original_version=True when forward.
   + All configs are in `configs/all_config`. You need to change root_list and mano_path_lst in `configs/config.py`. Download Mano models following [this](https://github.com/hassony2/manopth).
   
