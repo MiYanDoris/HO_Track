@@ -23,16 +23,7 @@ def read_depth_img(depth_filename):
     depth_img = cv2.imread(depth_filename)
     dpt = depth_img[:, :, 2] + depth_img[:, :, 1] * 256
     dpt = dpt * depth_scale
-
-    mask = cv2.imread(depth_filename)
-    seg = np.zeros((height, width))
-    hand_idx = (mask[:, :, 0] != 0)
-    seg[hand_idx] = 1
-
-    background = np.where(mask[:, :, 0] + mask[:, :, 1] == 0)
-    seg[background] = 2
-
-    return dpt, seg
+    return dpt
 
 def get_intrinsics(filename):
     with open(filename, 'r') as f:
@@ -77,7 +68,7 @@ def dpt_2_cld(dpt, K):
 
 def load_point_clouds(root_dir, seq, fID):
     path_depth = os.path.join(root_dir, 'train/%s/depth/%s.png' % (seq, fID))
-    depth_raw, _ = read_depth_img(path_depth)
+    depth_raw = read_depth_img(path_depth)
     anno = get_anno(root_dir, seq, fID)
     if seq[-2].isnumeric():
         calibDir = os.path.join(root_dir, 'calibration', seq[:-1], 'calibration')
@@ -85,8 +76,9 @@ def load_point_clouds(root_dir, seq, fID):
     else:
         K = anno['camMat']
 
-    mask_pth = os.path.join(root_dir, 'mask/%s/aligned_mask/%s.png' % (seq, fID))
+    mask_pth = os.path.join(root_dir, 'train/%s/seg/%s.png' % (seq, fID))
     mask = cv2.imread(mask_pth)
+    mask = cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
     mask = mask.reshape(-1, 3)
 
     cld, choose = dpt_2_cld(depth_raw, K)

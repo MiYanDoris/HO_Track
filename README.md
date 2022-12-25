@@ -16,15 +16,15 @@ This is the PyTorch implementation of [our paper](https://arxiv.org/abs/2209.120
 + We recommend using [Anaconda](https://www.anaconda.com/) to create an environment, by running the following:
 
   ```bash
-  conda env create -n hotrack python=3.7
+  conda create -n hotrack python=3.8
   conda activate hotrack
   ```
 
 + Install pytorch and other dependencies.
 
   ```bash
- pip install torch==1.9.1+cu111 torchvision==0.10.1+cu111 torchaudio==0.9.1 -f https://download.pytorch.org/whl/torch_stable.html
- 
+  pip install torch==1.9.1+cu111 torchvision==0.10.1+cu111 torchaudio==0.9.1 -f https://download.pytorch.org/whl/torch_stable.html
+  pip install -r requirements.txt
   ```
 
 + Compile the CUDA code for PointNet++ backbone.

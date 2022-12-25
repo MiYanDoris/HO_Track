@@ -22,7 +22,3 @@ scissors:
 drill:
     sym: 4
     num_parts: 1
-
-others: # scissors + drill
-    sym: 4
-    num_parts: 1

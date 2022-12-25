@@ -317,11 +317,6 @@ class IKNet(nn.Module):
                 th_trans=canon_pose['translation'].reshape(b, 3), th_betas=beta.reshape(b, 10).float())   
             ret_dict['pred_kp'] = pred_kp
 
-            prd_r, prd_t, _, _, _ = ransac_rt(palm_template, handkp2palmkp(pred_kp))
-            # print('check', canon_pose, prd_r, prd_t)
-            # print('init',(ret_dict['init_kp'] - input['gt_hand_kp'].to(self.device)).norm(dim=-1).mean())
-            # print('pred',(ret_dict['pred_kp'] - input['gt_hand_kp'].to(self.device)).norm(dim=-1).mean())
-            # exit(1)
         ret_dict['MANO_theta'] = mano_quat2axisang(raw_quat) #B, 45
         ret_dict['global_pose'] = canon_pose
         return ret_dict
