@@ -6,8 +6,6 @@ save_dir: htn_HO3D_track
 data_config: data_info_HO3D.yml    # name of the .yml file in data_config
 obj_category: ['bottle']
 num_points: 512
-input_only: hand            #['hand', 'obj', 'both']
-skip_data: hand             #['hand', 'obj', 'both']
 hand_jitter_cfg:
     mano_scale: 0
     rand_scale: 0.02        # std for 'normal' and range for 'uniform'

@@ -22,7 +22,7 @@ from optimization_obj import CatCS2InsCS, InsCS2CatCS, gf_optimize_obj, get_RT
 from optimization_hand import gf_optimize_hand_pose, gf_optimize_hand_shape
 from third_party.mano.our_mano import OurManoLayer
 from datasets.data_utils import farthest_point_sample
-
+from pose_utils.part_dof_utils import eval_part_full
 name_category_lst = {
     '002_master_chef_can': 'can',
     '005_tomato_soup_can': 'can',
@@ -39,15 +39,34 @@ name_category_lst = {
 
 def load_obj_for_opt(root_dir, dataset_name, sdf_code_source, seq_frame, instance):
     if 'HO3D' in dataset_name:
-        saved_model_pth = '/home/jiayichen/Curriculum-DeepSDF/examples/bottle_sim/ModelParameters/2000.pth'        
+        saved_model_pth = pjoin(root_dir, '../SimGrasp/SDF/examples/bottle_sim/ModelParameters/2000.pth')      
         normalization_pth = os.path.join(root_dir, 'SDF/NormalizationParameters/%s/textured_simple.npz' % instance)
         normalization_params = np.load(normalization_pth)
         gt_mesh_path = os.path.join(root_dir, f'models/{instance}/textured_simple.obj')
         if sdf_code_source == 'gt':
             latent_code_pth = os.path.join(root_dir, 'SDF/2000/Codes/gt/%s.pth' % instance)
             recon_mesh_path = gt_mesh_path
+        elif sdf_code_source == 'pred':
+            latent_code_pth = os.path.join(root_dir, 'SDF/2000/Codes/pred/%s.pth' % seq_frame.replace('/', '_'))
+            recon_mesh_path = latent_code_pth.replace('Codes', 'Meshes').replace('.pth', '.ply')
         else:
             raise NotImplementedError
+    elif dataset_name == 'SimGrasp':
+        if 'sim' not in instance:
+            instance = instance + '_sim'
+        latent_code_dir = pjoin(root_dir, 'SDF/Reconstructions/%s/2000/Codes'%(instance))
+        if sdf_code_source == 'gt':
+            latent_code_pth = os.path.join(latent_code_dir, seq_frame[:5] + '.pth')
+        elif sdf_code_source == 'pred':
+            latent_code_pth = os.path.join(latent_code_dir, seq_frame + '.pth')
+        else:
+            raise NotImplementedError
+        recon_mesh_path = latent_code_pth.replace('Codes', 'Meshes').replace('.pth', '.ply')
+        normalization_dir = pjoin(root_dir, 'SDF/NormalizationParameters/%s'%(instance))
+        normalization_pth = os.path.join(normalization_dir, seq_frame[:5] + '.npz')
+        normalization_params = np.load(normalization_pth)
+        saved_model_pth = pjoin(root_dir, 'SDF/%s/ModelParameters/2000.pth'%(instance))
+        gt_mesh_path = pjoin(root_dir, f'objs/{instance}/{seq_frame[:5]}.obj')
     else:
         print(dataset_name)
         raise NotImplementedError
@@ -126,7 +145,7 @@ class HandTrackModel(nn.Module):
             data['pred_palm_template'] = palm_template
             if last_frame_kp is not None:
                 # this trick is important for fast motion
-                data['jittered_hand_kp'] = last_frame_kp + data['points'].mean(dim=-2, keepdim=True).to(self.device).float()
+                data['jittered_hand_kp'] = last_frame_kp + data['hand_points'].mean(dim=-2, keepdim=True).to(self.device).float()
 
             if self.IKnet is not None:
                 flag_dict['IKNet_flag'] = True
@@ -176,11 +195,11 @@ class HandTrackModel(nn.Module):
                     ret_dict['global_pose']['translation'] = optimized_t.unsqueeze(-1)
                     ret_dict['global_pose']['rotation'] = optimized_rot_mat.unsqueeze(0)
                 # this trick is important for fast motion
-                last_frame_kp = deepcopy(ret_dict['pred_kp'] - data['points'].mean(dim=-2, keepdim=True).to(self.device).float())
+                last_frame_kp = deepcopy(ret_dict['pred_kp'] - data['hand_points'].mean(dim=-2, keepdim=True).to(self.device).float())
             else:
                 ret_dict = self.handnet(data, flag_dict)
                 # this trick is important for fast motion
-                last_frame_kp = deepcopy(ret_dict['pred_kp'] - data['points'].mean(dim=-2, keepdim=True).to(self.device).float())
+                last_frame_kp = deepcopy(ret_dict['pred_kp'] - data['hand_points'].mean(dim=-2, keepdim=True).to(self.device).float())
 
             if self.use_optimization and i == 0:
                 ret_dict['obj_info'] = {}
@@ -300,7 +319,7 @@ class ObjTrackModel_Optimization(nn.Module):
 
         self.num_parts = cfg['num_parts']
         # self.optimizer = Optimizer_obj(cfg)
-        self.opti =  cfg['network']['optimizer']
+        # self.opti =  cfg['network']['optimizer']
         self.optimizer = gf_optimize_obj(cfg)
         self.sym = cfg['obj_sym']
         self.root_dir = cfg['data_cfg']['basepath']
@@ -313,7 +332,7 @@ class ObjTrackModel_Optimization(nn.Module):
         if self.sdf_code_source == 'gt' :
             self.optimizer.load_obj_oracle(input[0]['category'][0])
         else:
-            self.optimizer.load_obj(obj_info, input[0]['category'][0], input[0]['gt_obj_pose'], input[0]['points'])
+            self.optimizer.load_obj(obj_info, input[0]['category'][0], input[0]['gt_obj_pose'], input[0]['obj_points'])
 
         last_frame_poses = None
         ret_dict_lst = []
@@ -333,7 +352,7 @@ class ObjTrackModel_Optimization(nn.Module):
                 }
                 # data['jittered_obj_pose']['scale'] = torch.FloatTensor(data['jittered_obj_pose']['scale'].float()).reshape(1,).to(self.device)
 
-            ret_dict = self.optimizer.optimize(data['points'], data['jittered_obj_pose'], data['category'][0], data['file_name'][0], data['projection'])
+            ret_dict = self.optimizer.optimize(data['obj_points'], data['jittered_obj_pose'], data['category'][0], data['file_name'][0], data['projection'])
             last_frame_poses['prev_translation'] = deepcopy(last_frame_poses['translation']) # last frame pose
             last_frame_poses['prev_rotation'] = deepcopy(last_frame_poses['rotation'])
             last_frame_poses['translation'] = deepcopy(ret_dict['translation']) # current frame pose

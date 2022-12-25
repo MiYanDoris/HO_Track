@@ -33,13 +33,8 @@ category2scale = {
     'car_sim': 0.3,
 }
 
-def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cfg, hand_jitter_config, device, handframe, input_only, skip_data, mano_layer_right, load_pred_obj_pose=False,pred_obj_pose_dir=None):
-    '''
-    input_only = 'hand' or 'obj' or 'both'
-    skip_data = 'hand' or 'obj' or 'both'
-    '''
+def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cfg, hand_jitter_config, device, handframe, mano_layer_right, load_pred_obj_pose=False,pred_obj_pose_dir=None):
     #read file
-    
     cloud_dict = np.load(path, allow_pickle=True)["all_dict"].item()
 
     cam = cloud_dict['points']
@@ -71,26 +66,6 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
         sample_idx = farthest_point_sample(obj_pcd, num_points, device)
         obj_pcd = obj_pcd[sample_idx]
 
-    if input_only == 'hand':
-        idx = np.where(label == hand_id)[0]
-        if len(idx) == 0:
-            return None
-        cam = cam[idx]
-        label = label[idx]
-    elif input_only == 'obj':
-        idx = np.where(label != hand_id)[0]
-        if len(idx) == 0:
-            return None
-        cam = cam[idx]
-        label = label[idx]
-
-    # sampling
-    sample_idx = farthest_point_sample(cam, num_points, device)
-    seg = label[sample_idx]
-    cam_points = cam[sample_idx]
-    if cam_points is None:
-        return None
-    
     # generate obj canonical point clouds
     obj_pose = cloud_dict['obj_pose']
     if num_parts == 1:
@@ -99,31 +74,11 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
     for i in range(num_parts):
         obj_pose[i]['translation'] = np.expand_dims(np.array(obj_pose[i]['translation']), axis=1)
 
-    obj_idx = np.where(seg != hand_id)[0]
-    if len(obj_idx)==0:
-      #  print('%s has no object!'%(path))
-        no_obj_flag = True
-    else:
-        no_obj_flag = False
     #generate hand canonical point clouds
     mano_pose = np.array(cloud_dict['hand_pose']['mano_pose'])
     hand_global_rotation = mat_from_rvec(mano_pose[:3])
     mano_trans = np.array(cloud_dict['hand_pose']['mano_trans'])
     mano_beta = np.array(cloud_dict['hand_pose']['mano_beta'])
-    hand_idx = np.where(seg == hand_id)[0]
-    if len(hand_idx)==0:
-        no_hand_flag = True
-    else:
-        no_hand_flag = False
-
-    #skip data
-    if input_only == 'both':
-        if skip_data == 'hand' and no_hand_flag:
-            return None
-        if skip_data == 'obj' and no_obj_flag:
-            return None
-        if skip_data == 'both' and (no_hand_flag or no_obj_flag):
-            return None
 
     hand_template, hand_kp = mano_layer_right.forward(th_pose_coeffs=torch.FloatTensor(np.array(mano_pose).reshape(1, -1)).cuda(),
                                             th_trans=torch.FloatTensor(mano_trans).reshape(1, -1).cuda(),
@@ -151,7 +106,8 @@ def generate_shapenet_data(path, category, num_parts, num_points, obj_perturb_cf
         jittered_obj_pose_lst.append(jittered_obj_pose)
 
     full_data = {
-        'points': cam_points,
+        'hand_points': hand_pcd,
+        'obj_points': obj_pcd,
         'jittered_obj_pose': pose_list_to_dict(jittered_obj_pose_lst),     # list
         'gt_obj_pose': pose_list_to_dict(obj_pose),                        # list
         'jittered_hand_kp': jittered_hand_kp,
@@ -241,8 +197,6 @@ class SimGraspDataset:
                                             self.cfg['hand_jitter_cfg'],
                                             self.cfg['device'], 
                                             self.handframe,
-                                            input_only=self.cfg['input_only'],
-                                            skip_data=self.cfg['skip_data'], 
                                             mano_layer_right=self.mano_layer_right, 
                                             load_pred_obj_pose=self.load_pred_obj_pose,
                                             pred_obj_pose_dir=self.pred_obj_pose_dir,

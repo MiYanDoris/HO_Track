@@ -1,13 +1,13 @@
 # dirs
 experiment_dir:  pretrained_handtracknet_SimGrasp
-save_dir: HO3D_track_debug
+IKNet_dir: pretrained_iknet_SimGrasp
+pred_obj_pose_dir: objopt_bottle_HO3D
+save_dir: handopt_HO3D_track
 
 # data info
 data_config: data_info_HO3D.yml    # name of the .yml file in data_config
 obj_category: ['bottle']
 num_points: 512
-input_only: hand            #['hand', 'obj', 'both']
-skip_data: hand             #['hand', 'obj', 'both']
 hand_jitter_cfg:
     mano_scale: 0
     rand_scale: 0.02        # std for 'normal' and range for 'uniform'
@@ -18,20 +18,21 @@ obj_jitter_cfg:
     r: 0
     t: 0
 
-track: hand   #['hand', 'hand_IKNet', 'obj_opt', False] False is for training 
+track: hand_IKNet   #['hand', 'hand_IKNet', 'obj_opt', False] False is for training 
 pointnet_cfg:
     camera: pointnet2_camera_shallow1.yml
 network:
     type: HandTrackNet
+    iknetframe: kp
     handframe: kp
     backbone_out_dim: 384
 
 
 # used in HandTrackModel in network/models/track_network.py
-use_pred_obj_pose: False    
-use_pred_hand_shape: False  
-use_optimization: False
-sdf_code_source: gt
+use_pred_obj_pose: True    
+use_pred_hand_shape: 1  
+use_optimization: True
+sdf_code_source: pred       
 
 # used in network/models/optimization_hand.py
 opt:
@@ -45,7 +46,7 @@ opt:
         use_tanh : False
         latent_dropout : False
         weight_norm : True
-    loss_weight:
+    energy_weight:
         penetrate_sum_loss: 10
         sil_loss: 10
         attraction_loss: 5

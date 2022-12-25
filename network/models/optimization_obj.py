@@ -9,7 +9,7 @@ from os.path import join as pjoin
 from third_party.DeepSDF.deep_sdf_decoder import Decoder
 from third_party.DeepSDF.mesh import create_mesh
 
-change = np.load('data/YCB_CatPose2InsPose.npy', allow_pickle=True).item()
+change = np.load('data/YCB/CatPose2InsPose.npy', allow_pickle=True).item()
 
 class soft_L1(nn.Module):
     def __init__(self):
@@ -73,12 +73,12 @@ class gf_optimize_obj():
         self.scaling_coefficient2 = 2
         self.volume_size = 201  
         self.voxel_scale = 0.002
-        self.beta = 0.9 # don't important
+        self.beta = 0.9 
 
-        self.update_shape_flag = cfg['network']['updateshape']
+        self.update_shape_flag = cfg['opt']['updateobjshape']
         self.device = cfg['device']
         latent_size = 256
-        self.SDFDecoder = Decoder(latent_size, **cfg['network']["NetworkSpecs"])
+        self.SDFDecoder = Decoder(latent_size, **cfg['opt']["NetworkSpecs"])
         self.SDFDecoder = torch.nn.DataParallel(self.SDFDecoder)
 
         # pre-define sdf volume
@@ -88,7 +88,6 @@ class gf_optimize_obj():
         self.volume_ind[:, 0] = self.volume_ind[:, 0] // self.volume_size // self.volume_size
         self.volume_ind = (self.volume_ind - self.volume_size//2) * self.voxel_scale
         self.volume_ind = self.volume_ind.to(self.device)
-        self.sdf_weight = cfg['optimization']['sdf_weight']
         
         # pre-sample particles
         mean = np.zeros(6)
@@ -98,7 +97,7 @@ class gf_optimize_obj():
         self.pre_sampled_particle = torch.FloatTensor(self.pre_sampled_particle).to(self.device)
 
         self.dataset_name = cfg['data_cfg']['dataset_name']
-        
+        self.root_dir = cfg['root_dir']
 
     def load_obj(self, obj_info, instance, init_pose, init_pc):
         latent_code_pth, normalization_param, saved_model_pth,_,_ = obj_info 
@@ -159,7 +158,8 @@ class gf_optimize_obj():
     
     def load_obj_oracle(self, instance):
         import trimesh
-        gt_obj_mesh = trimesh.load(f'/data/h2o_data/HO3D/models/{instance}/textured_simple.obj')
+        print(self.root_dir)
+        gt_obj_mesh = trimesh.load(pjoin(self.root_dir, f'models/{instance}/textured_simple.obj'))
         gt_obj_faces = torch.LongTensor(gt_obj_mesh.faces).reshape(-1, 3).cuda()
         gt_obj_verts = torch.FloatTensor(gt_obj_mesh.vertices).reshape(1, -1, 3).cuda()
 
@@ -174,38 +174,6 @@ class gf_optimize_obj():
         sdf = torch.clamp(sdf, -0.1, 0.1)
         self.sdf_volume  = sdf.reshape(self.volume_size,self.volume_size,self.volume_size)
         print('finish loading')
-        return 
-
-    def get_silhouette_loss(self, obj):
-        pred_2D = world2point2D(obj, self.proj['fx'][0], self.proj['fy'][0], self.proj['cx'][0], self.proj['cy'][0])   #[B, N, 2]
-        index1 = torch.clamp(pred_2D[...,0].long(), 0, self.h-1)
-        index2 = torch.clamp(pred_2D[...,1].long(), 0, self.w-1)
-        silhouette_loss = self.gt_mask[index1, index2]
-        silhouette_loss = silhouette_loss.sum(dim=-1) / pred_2D.shape[1]
-        return silhouette_loss
-
-    def load_gt_mask(self, category, file_name):
-        if self.dataset_name == 'HO3D':
-            silhouette_pth = '/data/h2o_data/HO3D/pred_mask/ensemble/%s/%s.png' % (file_name.split('/')[0], file_name.split('/')[1])
-            mask = (cv2.imread(silhouette_pth) / 70)[:240] # 0:obj,1:hand,2back
-            mask = cv2.resize(mask, (640, 480), interpolation=cv2.INTER_NEAREST)[:, :, 0]
-            self.gt_mask = (mask == 2)
-            self.gt_mask = torch.tensor(self.gt_mask).to(self.device)
-        elif self.dataset_name == 'DexYCB':
-            silhouette_pth = pjoin('/data/h2o_data/DexYCB/tarfolder/%s/%s/%s/labels_%s.npz' % (file_name.split('+')[0],file_name.split('+')[1],file_name.split('+')[2],file_name.split('+')[3]))
-            color_pth = silhouette_pth.replace('labels', 'color').replace('npz', 'jpg')
-            rgbimg = cv2.imread(color_pth)
-            maskimg = np.load(silhouette_pth)['seg']
-            self.gt_mask = maskimg==0
-            self.rgbimg = rgbimg * self.gt_mask[:,:,None]
-            self.gt_mask = torch.tensor(self.gt_mask).to(self.device)
-        elif self.dataset_name == 'SimGrasp':
-            silhouette_pth = '/data/h2o_data/new_sim_dataset/render/img/%s/seq/%s/mask.png' % (category, file_name)
-            maskimg = cv2.imread(silhouette_pth)
-            self.gt_mask = maskimg.sum(axis=-1) == 0
-            self.gt_mask = torch.tensor(self.gt_mask).to(self.device)
-        else:
-            raise NotImplementedError
         return 
 
     def Distance(self,V):
@@ -260,7 +228,7 @@ class gf_optimize_obj():
         pcld_flat = torch.matmul((pcld - t.transpose(-1,-2)), r).reshape(-1, 3)  
         queried_sdf = self.Distance(pcld_flat).reshape(-1, N)
         sdf_energy = torch.mean(queried_sdf.abs(), dim=-1)
-        energy = sdf_energy * self.sdf_weight
+        energy = sdf_energy * 500
         return energy, sdf_energy
 
     def update_seach_size(self, tsdf, mean_transform):
@@ -273,8 +241,6 @@ class gf_optimize_obj():
         self.proj = projection
         self.w = projection['w'][0]
         self.h = projection['h'][0]
-        # if self.silhouette:
-            # self.load_gt_mask(category, file_name)
         search_size = self.scaling_coefficient1
         prev_search_size = search_size
         count = 0
@@ -340,8 +306,6 @@ class gf_optimize_obj():
             queried_sdf = self.Distance(pcld_flat)
             good_mask = torch.where(queried_sdf.abs()<0.02)  
             final_pcld = final_pcld[:,good_mask[0]] 
-            # good_mask = queried_sdf.abs()<0.02   
-            # final_pcld = final_pcld * good_mask[...,None]
             final_pcld = CatCS2InsCS(final_pcld, self.normalization_param, self.instance)
             camera_center = torch.matmul(torch.zeros((1,1,3)).cuda() - ret_dict['translation'].transpose(-1,-2), ret_dict['rotation'])
             camera_center = CatCS2InsCS(camera_center, self.normalization_param, self.instance)

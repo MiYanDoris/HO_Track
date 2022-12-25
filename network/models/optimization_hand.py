@@ -164,7 +164,7 @@ class gf_optimize_hand_pose():
         self.initial_scale = torch.ones(self.optimize_dim, device=self.device) * 0.005 
 
         # MANO
-        self.mano_layer_right = OurManoLayer(mano_root=cfg['mano_root'], side='right', add_points=cfg['add_points']).cuda()
+        self.mano_layer_right = OurManoLayer(mano_root=cfg['mano_root'], side='right').cuda()
         
         # pre-sample particles
         mean = np.zeros(self.optimize_dim)

@@ -89,7 +89,7 @@ class HandTrackNet(nn.Module):
             palm_template = input['gt_hand_pose']['palm_template'].to(self.device)
 
         jittered_kp = input['jittered_hand_kp'].to(self.device).float() # [B,kp_num,3]
-        hand_points = input['points'].to(self.device).float()  # [B,N,3]
+        hand_points = input['hand_points'].to(self.device).float()  # [B,N,3]
         ret_dict = {}
 
         # --------------------- compute hand frame -------------------

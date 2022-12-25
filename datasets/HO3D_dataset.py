@@ -181,7 +181,7 @@ def generate_HO3D_data(mano_layer_right, root_dir, seq, fID, num_points, obj_per
     jittered_obj_pose_lst.append(jittered_obj_pose)
     
     full_data = {
-        'points': hand_pcld,
+        'hand_points': hand_pcld,
         'obj_points': obj_pcld,
         'jittered_obj_pose': pose_list_to_dict(jittered_obj_pose_lst),
         'gt_obj_pose': pose_list_to_dict([obj_pose]),

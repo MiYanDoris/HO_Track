@@ -16,7 +16,7 @@ from HO3D_dataset import HO3DDataset
 from configs.config import get_config
 
 def choose_dataset(name):
-    if name == 'newShapeNet':
+    if name == 'SimGrasp':
         return SimGraspDataset
     elif name == 'HO3D':
         return HO3DDataset
