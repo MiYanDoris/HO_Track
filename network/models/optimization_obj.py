@@ -1,21 +1,15 @@
 import numpy as np
 import torch
 from pose_utils.rotations import unit_quaternion_to_matrix
-from DeepSDF import Decoder
 import os
 import cv2
 import open3d as o3d
 import torch.nn as nn
-import sys 
 from os.path import join as pjoin 
-BASEPATH = os.path.dirname(__file__)
-sys.path.insert(0, pjoin(BASEPATH, '..', '..', '..', 'Curriculum-DeepSDF'))
-import deep_sdf
+from third_party.DeepSDF.deep_sdf_decoder import Decoder
+from third_party.DeepSDF.mesh import create_mesh
 
-if os.path.isfile('/data1/h2o_data/HO3D/CatPose2InsPose.npy'):
-    change = np.load('/data1/h2o_data/HO3D/CatPose2InsPose.npy', allow_pickle=True).item()
-else:
-    change = np.load('/data/h2o_data/HO3D/CatPose2InsPose.npy', allow_pickle=True).item()
+change = np.load('data/YCB_CatPose2InsPose.npy', allow_pickle=True).item()
 
 class soft_L1(nn.Module):
     def __init__(self):
@@ -119,7 +113,7 @@ class gf_optimize_obj():
 
         if self.dataset_name == 'HO3D' or self.dataset_name == 'DexYCB': # bottle, can, box, bowl
             self.ins_volume_ind = CatCS2InsCS(self.volume_ind, normalization_param, instance)
-        elif self.dataset_name == 'newShapeNet':
+        elif self.dataset_name == 'SimGrasp':
             self.ins_volume_ind = (self.volume_ind + torch.FloatTensor(normalization_param['offset']).to(self.device))*torch.FloatTensor(normalization_param['scale']).to(self.device)
         else:
             raise NotImplementedError
@@ -205,7 +199,7 @@ class gf_optimize_obj():
             self.gt_mask = maskimg==0
             self.rgbimg = rgbimg * self.gt_mask[:,:,None]
             self.gt_mask = torch.tensor(self.gt_mask).to(self.device)
-        elif self.dataset_name == 'new_shapenet':
+        elif self.dataset_name == 'SimGrasp':
             silhouette_pth = '/data/h2o_data/new_sim_dataset/render/img/%s/seq/%s/mask.png' % (category, file_name)
             maskimg = cv2.imread(silhouette_pth)
             self.gt_mask = maskimg.sum(axis=-1) == 0
@@ -279,8 +273,8 @@ class gf_optimize_obj():
         self.proj = projection
         self.w = projection['w'][0]
         self.h = projection['h'][0]
-        if self.silhouette:
-            self.load_gt_mask(category, file_name)
+        # if self.silhouette:
+            # self.load_gt_mask(category, file_name)
         search_size = self.scaling_coefficient1
         prev_search_size = search_size
         count = 0
@@ -434,7 +428,7 @@ class gf_optimize_obj():
     def sdf2mesh(self, mesh_filename):
         with torch.no_grad():
             decoderm = self.SDFDecoder.module.cuda()
-            deep_sdf.mesh.create_mesh(
+            create_mesh(
                 decoderm, self.latent_code, mesh_filename.replace('.ply', ''), N=128, max_batch=int(2 ** 18)
             )
         return 

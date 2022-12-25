@@ -1,9 +1,12 @@
 **/__pycache__
 *.png
-network/debug/
+**/debug
 .idea/
 *.npy
 *.pkl
-pymoo/
 *.obj
 vis/
+third_party/mano/models
+data/
+data
+debug*

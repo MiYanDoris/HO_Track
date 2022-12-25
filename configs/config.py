@@ -54,16 +54,18 @@ def get_config(args, save=True):
         cfg['pointnet'][key] = yaml.load(f, Loader=yaml.FullLoader)
 
     """ Save config """
-    root_list = ['exps']
+    root_list = ['data']
     root = choose_one_valid_path(root_list)
     cfg['root_dir'] = root 
     if 'save_dir' not in cfg:
-        cfg['save_dir'] = pjoin(root, 'prediction', cfg['experiment_dir'], 'results')
+        cfg['save_dir'] = pjoin(root, 'exps', cfg['experiment_dir'], 'results')
     else:
-        cfg['save_dir'] = pjoin(root, 'prediction', cfg['save_dir'], 'results')
-    cfg['experiment_dir'] = pjoin(root, 'runs', cfg['experiment_dir'])
+        cfg['save_dir'] = pjoin(root, 'exps', cfg['save_dir'], 'results')
+    cfg['experiment_dir'] = pjoin(root, 'exps', cfg['experiment_dir'])
+    if 'IKNet_dir' in cfg:
+        cfg['IKNet_dir'] = pjoin(root, 'exps', cfg['IKNet_dir'])
     if 'pred_obj_pose_dir' in cfg:
-        cfg['pred_obj_pose_dir'] = pjoin(root, 'prediction', cfg['pred_obj_pose_dir'], 'results')
+        cfg['pred_obj_pose_dir'] = pjoin(root, 'exps', cfg['pred_obj_pose_dir'], 'results')
 
     ensure_dirs(cfg['save_dir'])
     ensure_dirs(cfg['experiment_dir'])
@@ -89,7 +91,7 @@ def get_config(args, save=True):
 
     cfg["data_cfg"] = data_cfg
     cfg["device"] = torch.device("cuda:%d" % cfg['cuda_id']) if torch.cuda.is_available() else "cpu"
-    mano_path_lst = ['third_party/mano/model']
+    mano_path_lst = ['third_party/mano/models']
     cfg['mano_root'] = choose_one_valid_path(mano_path_lst)
     cfg['data_cfg']['basepath'] = pjoin(root, cfg['data_cfg']['basepath'])
     print("Running on ", cfg["device"])

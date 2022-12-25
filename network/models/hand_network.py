@@ -2,8 +2,7 @@ import sys
 import os
 from os.path import join as pjoin
 import torch 
-from network.models.our_mano import OurManoLayer
-import time 
+from third_party.mano.our_mano import OurManoLayer
 
 BASEPATH = os.path.dirname(__file__)
 sys.path.insert(0, BASEPATH)
@@ -193,13 +192,14 @@ class HandTrackNet(nn.Module):
             loss_dict['hand_pred_r_loss'] = L1_loss(delta_rotation, gt_delta_rotation)
             loss_dict['hand_pred_t_loss'] = L1_loss(delta_translation, gt_delta_translation)
             rot_err_mat = torch.matmul(delta_rotation.transpose(-1, -2), gt_delta_rotation)  # B, 3, 3
-            loss_dict['hand_init_r_diff'] = torch.mean(torch.acos(
-                torch.clamp((gt_delta_rotation[:, 0, 0] + gt_delta_rotation[:, 1, 1]
+            if 'global_pose' not in ret_dict:
+                loss_dict['hand_init_r_diff'] = torch.mean(torch.acos(
+                            torch.clamp((gt_delta_rotation[:, 0, 0] + gt_delta_rotation[:, 1, 1]
                             + gt_delta_rotation[:, 2, 2] - 1) / 2, min=-1, max=1))) * 180 / np.pi
+                loss_dict['hand_init_t_diff'] = gt_delta_translation.norm(dim=1).mean()
             loss_dict['hand_pred_r_diff'] = torch.mean(torch.acos(
                 torch.clamp((rot_err_mat[:, 0, 0] + rot_err_mat[:, 1, 1] + rot_err_mat[:, 2, 2] - 1) / 2, min=-1,
                             max=1))) * 180 / np.pi
-            loss_dict['hand_init_t_diff'] = gt_delta_translation.norm(dim=1).mean()
             loss_dict['hand_pred_t_diff'] = L2_loss(delta_translation, gt_delta_translation)
         
 
@@ -258,10 +258,10 @@ class IKNet(nn.Module):
             last_dim = weight
         self.linear.append(nn.Linear(weight, 15 * 4))
         self.iknetframe = cfg['network']['iknetframe']
-        self.mano_layer_right = OurManoLayer(mano_root=cfg['mano_root'], side='right', add_points=cfg['add_points']).cuda()
+        self.mano_layer_right = OurManoLayer(mano_root=cfg['mano_root'], side='right').cuda()
 
 
-    def forward(self, input, flag_dict, last_frame_gt_hand_pose=None):
+    def forward(self, input, flag_dict):
         ret_dict = {}
         track_flag = flag_dict['track_flag']
         b = input['gt_hand_kp'].shape[0]
@@ -317,6 +317,11 @@ class IKNet(nn.Module):
                 th_trans=canon_pose['translation'].reshape(b, 3), th_betas=beta.reshape(b, 10).float())   
             ret_dict['pred_kp'] = pred_kp
 
+            prd_r, prd_t, _, _, _ = ransac_rt(palm_template, handkp2palmkp(pred_kp))
+            # print('check', canon_pose, prd_r, prd_t)
+            # print('init',(ret_dict['init_kp'] - input['gt_hand_kp'].to(self.device)).norm(dim=-1).mean())
+            # print('pred',(ret_dict['pred_kp'] - input['gt_hand_kp'].to(self.device)).norm(dim=-1).mean())
+            # exit(1)
         ret_dict['MANO_theta'] = mano_quat2axisang(raw_quat) #B, 45
         ret_dict['global_pose'] = canon_pose
         return ret_dict

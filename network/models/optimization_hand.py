@@ -1,15 +1,13 @@
 import numpy as np
 import torch
 import pickle
-from our_mano import OurManoLayer
 from network.models.hand_utils import mano_axisang2quat, mano_quat2axisang
 from pose_utils.rotations import matrix_to_unit_quaternion, unit_quaternion_to_matrix
-from DeepSDF import Decoder
-import os
+from third_party.DeepSDF.deep_sdf_decoder import Decoder
+from third_party.mano.our_mano import OurManoLayer
 import cv2
 from optimization_obj import CatCS2InsCS, InsCS2CatCS
 from os.path import join as pjoin
-BASEPATH = os.path.dirname(__file__)
 
 
 def world2mask(xyz, device):
@@ -54,7 +52,6 @@ class gf_optimize_hand_shape():
         self.iteration = 20
         self.beta = 0.9
         self.device = cfg['device']
-        self.loss_weight = cfg['loss_weight']
         self.scaling_coefficient2 = 2000     
         self.initial_scale = torch.ones(self.optimize_dim, device=self.device) * 5
 
@@ -90,11 +87,7 @@ class gf_optimize_hand_shape():
             
     def optimize(self, pred_kp, use_old=False):
         # initialize 
-        if pred_kp.shape[-2] == 21:
-            self.set_init_para(pred_kp, use_old)
-        else:
-            print(pred_kp.shape)
-            raise NotImplementedError
+        self.set_init_para(pred_kp, use_old)
 
         search_size = self.initial_scale
         prev_search_size = search_size
@@ -161,7 +154,7 @@ class gf_optimize_hand_pose():
         self.particle_size = 5120
         self.iteration = 5
         self.root_dir = cfg['data_cfg']['basepath']
-        self.loss_weight = cfg['opt']['loss_weight']
+        self.energy_weight = cfg['opt']['energy_weight']
         self.device = cfg['device']
         self.theta_scale = 30  
         self.beta = 0.9
@@ -180,8 +173,8 @@ class gf_optimize_hand_pose():
         self.pre_sampled_particle[0,:] = 0
         self.pre_sampled_particle = torch.FloatTensor(self.pre_sampled_particle).to(self.device)  
         
-        # NOTE: These contact zones comes from github repo Obman
-        with open(pjoin(BASEPATH, 'contact_zones.pkl'), "rb") as p_f:
+        # NOTE: These contact zones comes from github repo Obman 
+        with open('third_party/obman_train/assets/contact_zones.pkl', "rb") as p_f:
             contact_data = pickle.load(p_f)
         self.hand_region = contact_data["contact_zones"] # zone_idx, zone_vert_idxs
         self.tips_region = []
@@ -304,7 +297,7 @@ class gf_optimize_hand_pose():
 
         energy = 0
         for key in loss_dict.keys():
-            loss_dict[key] = loss_dict[key] * self.loss_weight[key]
+            loss_dict[key] = loss_dict[key] * self.energy_weight[key]
             energy += loss_dict[key]
         return energy 
 
@@ -334,7 +327,7 @@ class gf_optimize_hand_pose():
             mask = (cv2.imread(silhouette_pth) / 70)[:240] # 0:obj,1:hand,2back
             mask = cv2.resize(mask, (640, 480), interpolation=cv2.INTER_NEAREST)[:, :, 0]
             self.gt_mask = (mask == 2)
-        elif self.data_config == 'data_info_newShapeNet.yml':
+        elif self.data_config == 'data_info_SimGrasp.yml':
             silhouette_pth = pjoin(self.root_dir, 'img/%s/seq/%s/mask.png' % (category, file_name))
             maskimg = cv2.imread(silhouette_pth)
             self.gt_mask = maskimg.sum(axis=-1) == 0

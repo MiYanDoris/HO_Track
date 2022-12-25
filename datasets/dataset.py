@@ -13,7 +13,6 @@ sys.path.append(pjoin(base_dir, '..', '..'))
 
 from datasets.SimGrasp_dataset import SimGraspDataset
 from HO3D_dataset import HO3DDataset
-from HOI4D_dataset import HOI4DDataset
 from configs.config import get_config
 
 def choose_dataset(name):
@@ -21,8 +20,8 @@ def choose_dataset(name):
         return SimGraspDataset
     elif name == 'HO3D':
         return HO3DDataset
-    elif name == 'HOI4D':
-        return HOI4DDataset
+    elif name == 'DexYCB':
+        return DexYCBDataset
     else:
         raise NotImplementedError
 
@@ -50,11 +49,11 @@ class SequenceData(Dataset):
         assert mode == 'train' or mode == 'test'
         self.dataset = choose_dataset(cfg['data_cfg']['dataset_name'])(cfg, mode=mode)
         self.dataset_name = cfg['data_cfg']['dataset_name']
-        if cfg['data_cfg']['dataset_name'] in ['DexYCB', 'HO3D', 'HOI4D']:
+        if cfg['data_cfg']['dataset_name'] in ['DexYCB', 'HO3D']:
             self.seq_start = self.dataset.seq_start[:-1]
             self.seq_end = self.dataset.seq_start[1:]
             self.len = len(self.seq_start)
-        elif cfg['data_cfg']['dataset_name'] in ['ShapeNet', 'newShapeNet']:
+        elif cfg['data_cfg']['dataset_name'] in ['SimGrasp']:
             self.num_frames = cfg['data_cfg']['num_frames']
             if len(self.dataset) >= self.num_frames:
                 assert len(self.dataset) % self.num_frames == 0, "Total #frames mismatch with #frames/video"

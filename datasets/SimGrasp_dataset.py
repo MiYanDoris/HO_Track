@@ -4,9 +4,7 @@ import numpy as np
 from os.path import join as pjoin
 import argparse
 import torch
-from tqdm import tqdm
-import time 
-from network.models.our_mano import OurManoLayer
+from third_party.mano.our_mano import OurManoLayer
 from network.models.hand_utils import handkp2palmkp
 
 base_dir = os.path.dirname(__file__)

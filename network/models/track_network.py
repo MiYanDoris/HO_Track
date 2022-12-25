@@ -20,7 +20,7 @@ from copy import deepcopy
 import trimesh
 from optimization_obj import CatCS2InsCS, InsCS2CatCS, gf_optimize_obj, get_RT
 from optimization_hand import gf_optimize_hand_pose, gf_optimize_hand_shape
-from our_mano import OurManoLayer
+from third_party.mano.our_mano import OurManoLayer
 from datasets.data_utils import farthest_point_sample
 
 name_category_lst = {
@@ -48,17 +48,6 @@ def load_obj_for_opt(root_dir, dataset_name, sdf_code_source, seq_frame, instanc
             recon_mesh_path = gt_mesh_path
         else:
             raise NotImplementedError
-    # elif dataset_name == 'HOI4D':
-    #     if sdf_code_source == 'gt':
-    #         raise NotImplementedError
-    #     else:
-    #         latent_code_pth = '/data/h2o_data/HOI4D/SDF/2000/Codes/pred_on_test_seg/%s/%s.pth' % (instance, seq_frame.replace('/', '_').replace('_preprocess', ''))
-    #         obj_id = int(seq_frame.split('/')[0][1:])
-    #         nomalization_pth = '/data/h2o_data/HOI4D/SDF/NormalizationParameters/%s/%03d_0.txt' % (instance, obj_id)
-    #         normalization_scale = torch.FloatTensor(np.loadtxt(nomalization_pth)).cuda()
-    #         saved_model_pth = f'/home/jiayichen/Curriculum-DeepSDF/examples/{instance}_sim/ModelParameters/2000.pth'
-    #         gt_mesh_path = '/data/h2o_data/HOI4D/CAD/%s/%03d.obj' % (instance, obj_id)
-    #         recon_mesh_path = '/data/h2o_data/HOI4D/SDF/2000/Meshes/pred_on_test_seg/%s/N%02d_0000.ply' % (instance, obj_id)
     else:
         print(dataset_name)
         raise NotImplementedError
@@ -74,7 +63,7 @@ class HandTrackModel(nn.Module):
     def __init__(self, cfg, handnet=HandTrackNet, IKnet=None):
         super(HandTrackModel, self).__init__()
         print(f'[Hand Tracking] Use IKNet: {IKnet is not None}')
-        print(f"[Hand Tracking] Use shape code: {cfg['use_pred_hand_shape']}")
+        # print(f"[Hand Tracking] Use shape code: {cfg['use_pred_hand_shape']}")
         print(f'[Hand Tracking] Use optimization: ', cfg['use_optimization'])
 
         self.use_optimization = cfg['use_optimization']
@@ -128,9 +117,9 @@ class HandTrackModel(nn.Module):
                                     th_trans=torch.zeros((1,3),device=self.device))
         palm_template = handkp2palmkp(canon_kp)
         
-        # obj_info = load_obj_for_opt(self.root_dir, self.dataset_name, self.sdf_code_source, input[0]['file_name'][0], input[0]['category'][0])
-        # if self.use_optimization:
-        #     self.optimizer.load_obj(obj_info[:3], input[0]['category'][0])
+        if self.use_optimization:
+            obj_info = load_obj_for_opt(self.root_dir, self.dataset_name, self.sdf_code_source, input[0]['file_name'][0], input[0]['category'][0])
+            self.optimizer.load_obj(obj_info[:3], input[0]['category'][0])
         
         ret_dict_lst = []
         for i, data in enumerate(input):
@@ -193,11 +182,11 @@ class HandTrackModel(nn.Module):
                 # this trick is important for fast motion
                 last_frame_kp = deepcopy(ret_dict['pred_kp'] - data['points'].mean(dim=-2, keepdim=True).to(self.device).float())
 
-            # if i == 0:
-            #     ret_dict['obj_info'] = {}
-            #     ret_dict['obj_info']['recon_path'] = obj_info[4]
-            #     ret_dict['obj_info']['recon_scale'] = np.array([obj_info[1]['scale'][0]])
-            #     ret_dict['obj_info']['gt_path'] = obj_info[3]
+            if self.use_optimization and i == 0:
+                ret_dict['obj_info'] = {}
+                ret_dict['obj_info']['recon_path'] = obj_info[4]
+                ret_dict['obj_info']['recon_scale'] = np.array([obj_info[1]['scale'][0]])
+                ret_dict['obj_info']['gt_path'] = obj_info[3]
             ret_dict_lst.append(ret_dict)
 
         return ret_dict_lst

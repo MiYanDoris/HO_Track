@@ -123,7 +123,7 @@ class Trainer(nn.Module):
             self.rotnet_exp_dir = None
             self.hand_kp_exp_dir = pjoin(cfg['experiment_dir'], 'ckpt')
             self.hand_kp_resume_epoch = -1
-            self.IKNet_exp_dir = pjoin(cfg['root_dir'], 'runs',cfg['IKNet_dir'], 'ckpt')
+            self.IKNet_exp_dir = pjoin(cfg['IKNet_dir'], 'ckpt')
             self.IKNet_resume_epoch = -1
         elif cfg['track'] == 'obj_opt':
             self.model = ObjTrackModel_Optimization(cfg)
