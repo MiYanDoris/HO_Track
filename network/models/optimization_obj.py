@@ -141,7 +141,9 @@ class gf_optimize_obj():
                     inputs = torch.cat([latent_inputs, self.ins_volume_ind[i*length:min(all_length, (i+1)*length)]], 1)
                     self.sdf_volume[i*length:min(all_length, (i+1)*length)] = SDFDecoder(inputs)
                 self.sdf_volume = self.sdf_volume.reshape(self.volume_size,self.volume_size,self.volume_size) / normalization_param['scale'][0]       #[V^3, 1]
-            os.makedirs(os.path.dirname(voxelsdf_pth), exist_ok=True)
+            # os.makedirs(os.path.dirname(voxelsdf_pth), exist_ok=True)
+            # np.save(voxelsdf_pth[:-4], {'sdf':self.sdf_volume.cpu().numpy(),'size':self.volume_size, 'scale': self.voxel_scale})
+            # print('save to ', voxelsdf_pth)
         # inputs = torch.cat([latent_inputs, self.ins_volume_ind], 1)
         # with torch.no_grad():
         #     self.sdf_volume = SDFDecoder(inputs).reshape(self.volume_size,self.volume_size,self.volume_size) / normalization_param['scale'][0]       #[V^3, 1]

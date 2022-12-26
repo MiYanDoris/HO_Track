@@ -77,10 +77,10 @@ def load_obj_for_opt(root_dir, dataset_name, sdf_code_source, seq_frame, instanc
         normalization_pth = os.path.join(root_dir, '../YCB/SDF/NormalizationParameters/%s/textured_simple.npz' % instance)
         normalization_params = np.load(normalization_pth)
         if 'bowl' in instance:
-            saved_model_pth = pjoin(root_dir, '../SimGrasp/examples/bowl_sim/ModelParameters/2000.pth')
+            saved_model_pth = pjoin(root_dir, '../SimGrasp/SDF/examples/bowl_sim/ModelParameters/2000.pth')
             print('Use SDF decoder for bowl!')
         else:
-            saved_model_pth = pjoin(root_dir, '../SimGrasp/examples/bottle_sim/ModelParameters/2000.pth')
+            saved_model_pth = pjoin(root_dir, '../SimGrasp/SDF/examples/bottle_sim/ModelParameters/2000.pth')
             print('Use SDF decoder for bottle!')
     else:
         print(dataset_name)

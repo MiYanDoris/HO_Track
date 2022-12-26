@@ -3,7 +3,6 @@
 **/debug
 .idea/
 *.npy
-*.pkl
 *.obj
 vis/
 third_party/mano/models

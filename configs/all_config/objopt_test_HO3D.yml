@@ -12,8 +12,8 @@ hand_jitter_cfg:
 obj_jitter_cfg:
     type: normal
     s: 0
-    r: 0
-    t: 0
+    r: 5
+    t: 0.03
 
 track: obj_opt   #['hand', 'hand_IKNet', 'obj_opt', False] False is for training 
 pointnet_cfg:

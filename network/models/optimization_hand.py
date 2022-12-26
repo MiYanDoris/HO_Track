@@ -198,9 +198,19 @@ class gf_optimize_hand_pose():
         # coordinate transformation
         ins_volume_ind = CatCS2InsCS(self.volume_ind, self.normalization_param, instance, self.dataset_name)
 
-        latent_inputs = self.latent_code.expand(ins_volume_ind.shape[0], -1)
-        inputs = torch.cat([latent_inputs, ins_volume_ind], 1)
-        self.sdf_volume = SDFDecoder(inputs).reshape(self.volume_size,self.volume_size,self.volume_size) / self.normalization_param['scale'][0]        #[V^3, 1]
+        piece = 10
+        all_length = ins_volume_ind.shape[0]
+        length = all_length // piece + 1
+        self.sdf_volume = torch.zeros((all_length, 1), dtype=torch.float16).cuda()
+        for i in range(piece):
+            latent_inputs = self.latent_code.expand(min(all_length, (i+1)*length)-i*length, -1)
+            inputs = torch.cat([latent_inputs, ins_volume_ind[i*length:min(all_length, (i+1)*length)]], 1)
+            self.sdf_volume[i*length:min(all_length, (i+1)*length)] = SDFDecoder(inputs)
+        self.sdf_volume = self.sdf_volume.reshape(self.volume_size,self.volume_size,self.volume_size) / self.normalization_param['scale'][0]       #[V^3, 1]
+        # # NOTE: If the GPU memory is enough, you can directly use the following code without cutting to pieces
+        # latent_inputs = self.latent_code.expand(ins_volume_ind.shape[0], -1)
+        # inputs = torch.cat([latent_inputs, ins_volume_ind], 1)
+        # self.sdf_volume = SDFDecoder(inputs).reshape(self.volume_size,self.volume_size,self.volume_size) / self.normalization_param['scale'][0]        #[V^3, 1]
         return 
 
     def get_kp_from_delta(self, delta):

@@ -8,7 +8,7 @@ obj_category: ['bottle']
 num_points: 512
 hand_jitter_cfg:
     mano_scale: 0
-    rand_scale: 0.02        # std for 'normal' and range for 'uniform'
+    rand_scale: 0.01        # std for 'normal' and range for 'uniform'
     rand_type: normal       #'normal' or 'uniform'
 obj_jitter_cfg:
     type: normal
