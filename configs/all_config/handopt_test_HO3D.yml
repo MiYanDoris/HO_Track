@@ -47,9 +47,9 @@ opt:
         latent_dropout : False
         weight_norm : True
     energy_weight:
-        penetrate_sum_loss: 10
-        sil_loss: 10
-        attraction_loss: 5
+        penetrate_sum_loss: 1
+        sil_loss: 0.1
+        attraction_loss: 0.05
         vis_regu_loss: 10
         invis_regu_loss: 0
         temporal_smooth: 1

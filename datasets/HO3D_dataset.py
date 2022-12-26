@@ -141,6 +141,11 @@ def generate_HO3D_data(mano_layer_right, root_dir, seq, fID, num_points, obj_per
     hand_kp = hand_kp[reorder]
     world_trans = hand_kp[0]
 
+    # print('#'*50)
+    # print(seq, fID)
+    # print(obj_pose)
+    # print(hand_pcld.shape, obj_pcld.shape)
+    # print(hand_pcld[1000], obj_pcld[1000])
     # remove outliers
     obj_dis = np.linalg.norm(obj_pcld - obj_pose['translation'].transpose(-1,-2), axis=-1)
     foreground = np.where(obj_dis < 0.25)
@@ -149,7 +154,7 @@ def generate_HO3D_data(mano_layer_right, root_dir, seq, fID, num_points, obj_per
     hand_dis = np.linalg.norm(hand_pcld - hand_kp[9], axis=-1)
     foreground = np.where(hand_dis < 0.15)
     hand_pcld = hand_pcld[foreground]
-
+    
     # point cloud downsample
     sample_idx = farthest_point_sample(hand_pcld, num_points, device)
     hand_pcld = hand_pcld[sample_idx]

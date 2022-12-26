@@ -2,27 +2,13 @@ import numpy as np
 import torch
 import pickle
 from network.models.hand_utils import mano_axisang2quat, mano_quat2axisang
-from pose_utils.rotations import matrix_to_unit_quaternion, unit_quaternion_to_matrix
+from pose_utils.rotations import matrix_to_unit_quaternion,compute_rotation_matrix_from_ortho6d, unit_quaternion_to_matrix
 from third_party.DeepSDF.deep_sdf_decoder import Decoder
 from third_party.mano.our_mano import OurManoLayer
 import cv2
 from optimization_obj import CatCS2InsCS, InsCS2CatCS
 from os.path import join as pjoin
 
-
-def world2mask(xyz, device):
-    '''
-        xyz: B, N, 3
-    '''
-    B = xyz.shape[0]
-    mask = torch.zeros((B, h, w), device=device, dtype=torch.bool)
-    x = (xyz[..., 0] / xyz[..., 2] * fx + w // 2).long()
-    y = (xyz[..., 1] / xyz[..., 2] * fy + h // 2).long()
-    x = torch.clamp(x, 0, w-1)
-    y = torch.clamp(y, 0, h-1)
-    help = torch.arange(x.shape[0])[:,None].repeat(1, x.shape[1])
-    mask[help, y, x] = True
-    return mask.bool()
 
 def world2point2D(xyz, fx, fy, cx, cy):
     '''
@@ -244,7 +230,7 @@ class gf_optimize_hand_pose():
         pred_2D = world2point2D(hand, self.proj['fx'][0], self.proj['fy'][0], self.proj['cx'][0], self.proj['cy'][0])   #[B, N, 2]
         index1 = torch.clamp(pred_2D[...,0].long(), 0, self.h-1)
         index2 = torch.clamp(pred_2D[...,1].long(), 0, self.w-1)
-        silhouette_loss = self.gt_mask[index1, index2]
+        silhouette_loss = self.gt_background_mask[index1, index2]
         silhouette_loss = silhouette_loss.sum(dim=-1) / pred_2D.shape[1]
         return silhouette_loss
 
@@ -323,23 +309,23 @@ class gf_optimize_hand_pose():
         
         # read silhouette 
         if self.data_config == 'data_info_HO3D.yml':
-            silhouette_pth = pjoin(self.root_dir, 'pred_mask/ensemble/%s/%s.png' % (file_name.split('/')[0], file_name.split('/')[1]))
-            mask = (cv2.imread(silhouette_pth) / 70)[:240] # 0:obj,1:hand,2back
-            mask = cv2.resize(mask, (640, 480), interpolation=cv2.INTER_NEAREST)[:, :, 0]
-            self.gt_mask = (mask == 2)
+            silhouette_pth = pjoin(self.root_dir, 'train/%s/seg/%s.png' % (file_name.split('/')[0], file_name.split('/')[1]))
+            mask = cv2.imread(silhouette_pth) 
+            mask = cv2.resize(mask, (640, 480), interpolation=cv2.INTER_NEAREST)
+            self.gt_background_mask =  mask.sum(axis=-1) == 0
         elif self.data_config == 'data_info_SimGrasp.yml':
             silhouette_pth = pjoin(self.root_dir, 'img/%s/seq/%s/mask.png' % (category, file_name))
             maskimg = cv2.imread(silhouette_pth)
-            self.gt_mask = maskimg.sum(axis=-1) == 0
+            self.gt_background_mask = maskimg.sum(axis=-1) == 0
         elif self.data_config == 'data_info_DexYCB.yml':
             silhouette_pth = pjoin(self.root_dir, 'tarfolder/%s/%s/%s/labels_%s.npz' % (file_name.split('+')[0],file_name.split('+')[1],file_name.split('+')[2],file_name.split('+')[3]))
             color_pth = silhouette_pth.replace('labels', 'color').replace('npz', 'jpg')
             rgbimg = cv2.imread(color_pth)
             maskimg = np.load(silhouette_pth)['seg']
-            self.gt_mask = maskimg==0
-            self.rgbimg = rgbimg * self.gt_mask[:,:,None]
+            self.gt_background_mask = maskimg==0
+            self.rgbimg = rgbimg * self.gt_background_mask[:,:,None]
 
-        self.gt_mask = torch.tensor(self.gt_mask).to(self.device)
+        self.gt_background_mask = torch.tensor(self.gt_background_mask).to(self.device)
 
     def optimize(self, init_mano, init_hand_pose, init_kp, last_frame_kp, vis_mask, init_obj_pose, category, file_name, hand_shape, projection):
         # initialize 
@@ -378,6 +364,9 @@ class gf_optimize_hand_pose():
                 mean_transform = (sample * weight.unsqueeze(1)).sum(dim=0, keepdim=True) / weight_sum    #[1, 7]
                 mean_transform[:, :4] /= mean_transform[:,:4].norm()
                 self.curr_r = torch.matmul(self.curr_r, unit_quaternion_to_matrix(mean_transform[:, :4])) 
+                # NOTE: It is necessary to project rotation back to the SO3 since accumulate product may cause numerial error 
+                self.curr_r  = compute_rotation_matrix_from_ortho6d(self.curr_r.reshape(-1, 9)[:,:6]).transpose(-1,-2)
+                
                 self.curr_t = self.curr_t + mean_transform[:, 4:7, None]
                 self.curr_theta = self.curr_theta + self.mano_layer_right.pca_comps2pose(self.ncomps, mean_transform[:, 7:])*self.theta_scale
             else:

@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from pose_utils.rotations import unit_quaternion_to_matrix
+from pose_utils.rotations import unit_quaternion_to_matrix, compute_rotation_matrix_from_ortho6d
 import os
 import cv2
 import open3d as o3d
@@ -277,8 +277,10 @@ class gf_optimize_obj():
             #update R, T
             if success_flag:
                 mean_transform = (sample * weight.unsqueeze(1)).sum(dim=0, keepdim=True) / weight_sum    #[1, 7]
-                mean_transform[:, :4] /= (mean_transform[:,:4].norm() + 1e-5)
+                mean_transform[:, :4] /= (mean_transform[:,:4].norm() + 1e-8)
                 rotation = torch.matmul(rotation, unit_quaternion_to_matrix(mean_transform[:, :4])) 
+                # NOTE: It is necessary to project rotation back to the SO3 since accumulate product may cause numerial error 
+                rotation = compute_rotation_matrix_from_ortho6d(rotation.reshape(-1, 9)[:,:6]).transpose(-1,-2)
                 translation = translation + mean_transform[:, 4:, None]
             else:
                 mean_transform = torch.zeros((1,7), device=self.device)

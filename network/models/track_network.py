@@ -187,7 +187,7 @@ class HandTrackModel(nn.Module):
                 # optimize MANO pose code and hand global RT to improve HO interaction
                 if self.use_optimization:
                     obj_pose = data['pred_obj_pose'] if self.use_pred_obj_pose else data['gt_obj_pose']
-                    optimized_kp, optimized_mano, optimized_rot_mat, optimized_t, ret_dict['max_penetr'] = self.optimizer.optimize(ret_dict['MANO_theta'], ret_dict['global_pose'],
+                    optimized_kp, optimized_mano, optimized_rot_mat, optimized_t = self.optimizer.optimize(ret_dict['MANO_theta'], ret_dict['global_pose'],
                                                      ret_dict['baseline_pred_kp'], last_frame_kp, ret_dict['pred_kp_vis_mask'], obj_pose, data['category'][0],
                                                      data['file_name'][0], shape_code, data['projection'])
                     ret_dict['pred_kp'] = optimized_kp
@@ -221,8 +221,6 @@ class HandTrackModel(nn.Module):
 
         for i, data in enumerate(input):
             loss_dict, _ = self.handnet.compute_loss(data, ret_dict_lst[i], flag_dict)
-            if self.use_optimization and self.IKnet is not None:
-                loss_dict['max_penetration'] = ret_dict_lst[i]['max_penetr'] if ret_dict_lst[i]['max_penetr'] > 0  else 0
             add_dict(total_loss, loss_dict)
             if i == 0:
                 init_loss = deepcopy(loss_dict)
@@ -416,7 +414,6 @@ class ObjTrackModel_Optimization(nn.Module):
 
                 eval_pred_obj_pose = {'rotation': torch.matmul(ret_dict_lst[i]['rotation'], R.transpose(-1,-2))}
                 eval_pred_obj_pose['translation'] = ret_dict_lst[i]['translation'] - torch.matmul(eval_pred_obj_pose['rotation'], T)
-
             else:
                 eval_gt_obj_pose = data['gt_obj_pose']
                 eval_pred_obj_pose = ret_dict_lst[i]
@@ -425,9 +422,6 @@ class ObjTrackModel_Optimization(nn.Module):
             transformed_gt_mesh = torch.matmul(gt_mesh.clone(), data['gt_obj_pose']['rotation'].squeeze().transpose(-1,-2)) + data['gt_obj_pose']['translation'].squeeze()
             transformed_pred_mesh = torch.matmul(pred_mesh.clone(), ret_dict_lst[i]['rotation'].squeeze().transpose(-1,-2)) + ret_dict_lst[i]['translation'].squeeze()
             loss_dict['pred_obj_chamfer(mm)'] = compute_chamfer(transformed_gt_mesh, transformed_pred_mesh) * 1000
-            # print(i, loss_dict['pred_obj_chamfer(mm)'], loss_dict['rdiff_0'], loss_dict['tdiff_0'])
-            # if loss_dict['pred_obj_chamfer(mm)'] / 1000 < 0.1*diag:
-                # ADDcount += 1/len(input)
             add_dict(total_loss, loss_dict)
             if save_flag:
                 merge_dict(save_dict, {'gt_hand_poses':data['gt_hand_pose'],

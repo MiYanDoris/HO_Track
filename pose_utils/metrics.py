@@ -4,6 +4,10 @@ import numpy as np
 # evaluation metrics
 # Rotation error worths attention due to symmetrics, especially for pure point clouds.
 def rot_diff_rad(rot1, rot2, axis=None, up_and_down_sym=False):
+    # check rot
+    check1 = (rot1.norm(dim=-1) - 1).abs().mean()
+    check2 = (rot2.norm(dim=-1) - 1).abs().mean()
+    assert check1 < 5e-4 and check2 < 5e-4, f"{check1}, {check2}"
     if axis <= 2 and 0 <= axis:
         if isinstance(rot1, np.ndarray):
             y1, y2 = rot1[..., axis], rot2[..., axis]  # [Bs, 3]
