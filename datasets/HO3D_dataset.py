@@ -12,6 +12,25 @@ sys.path.append(os.path.join(base_dir, '..'))
 from data_utils import farthest_point_sample, mat_from_rvec, jitter_hand_kp, jitter_obj_pose, pose_list_to_dict
 import cv2
 
+
+"""
+HO3D data organization:
+    calibration  
+    evaluation   
+    evaluation.txt           
+    manual_annotations  
+    train
+        ABF10
+            depth  
+            meta  
+            rgb  
+            seg
+        ...
+    train.txt
+    splits
+    SDF
+"""
+
 height, width = 480, 640
 xmap = np.array([[j for i in range(width)] for j in range(height)])
 ymap = np.array([[i for i in range(width)] for j in range(height)])
@@ -116,8 +135,8 @@ def generate_HO3D_data(mano_layer_right, root_dir, seq, fID, num_points, obj_per
     cam_fx, cam_fy = cam_Mat[0][0], cam_Mat[1][1]
 
     # get object pose
-    scale_pth = os.path.join(root_dir, 'models', anno['objName'], 'scale.txt')
-    scale = np.loadtxt(scale_pth)
+    scale_pth = pjoin(root_dir, '../YCB/SDF/NormalizationParameters', anno['objName'], 'textured_simple.npz')
+    scale = 2 / np.load(scale_pth)['scale']
     origin_obj_pose = {
         'translation': anno['objTrans'],
         'ID': seq[:-1],
@@ -141,11 +160,6 @@ def generate_HO3D_data(mano_layer_right, root_dir, seq, fID, num_points, obj_per
     hand_kp = hand_kp[reorder]
     world_trans = hand_kp[0]
 
-    # print('#'*50)
-    # print(seq, fID)
-    # print(obj_pose)
-    # print(hand_pcld.shape, obj_pcld.shape)
-    # print(hand_pcld[1000], obj_pcld[1000])
     # remove outliers
     obj_dis = np.linalg.norm(obj_pcld - obj_pose['translation'].transpose(-1,-2), axis=-1)
     foreground = np.where(obj_dis < 0.25)

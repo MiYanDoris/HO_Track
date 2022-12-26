@@ -156,25 +156,26 @@ class gf_optimize_obj():
         self.instance = instance
         return 
     
-    def load_obj_oracle(self, instance):
-        import trimesh
-        print(self.root_dir)
-        gt_obj_mesh = trimesh.load(pjoin(self.root_dir, f'models/{instance}/textured_simple.obj'))
-        gt_obj_faces = torch.LongTensor(gt_obj_mesh.faces).reshape(-1, 3).cuda()
-        gt_obj_verts = torch.FloatTensor(gt_obj_mesh.vertices).reshape(1, -1, 3).cuda()
+    # # Directly compute the SDF volumn from a mesh if we assume the mesh is known.
+    # # kaolin documentation: https://kaolin.readthedocs.io/en/latest/notes/installation.html
+    # def load_obj_oracle(self, instance, gt_obj_mesh):
+    #     import trimesh
+    #     print(self.root_dir)
+    #     gt_obj_faces = torch.LongTensor(gt_obj_mesh.faces).reshape(-1, 3).cuda()
+    #     gt_obj_verts = torch.FloatTensor(gt_obj_mesh.vertices).reshape(1, -1, 3).cuda()
 
-        import kaolin 
-        from kaolin.ops.mesh import index_vertices_by_faces
-        face_vertices = index_vertices_by_faces(gt_obj_verts, gt_obj_faces)
-        dis,_,_ = kaolin.metrics.trianglemesh.point_to_mesh_distance(self.volume_ind.unsqueeze(0), face_vertices)
-        sign = kaolin.ops.mesh.check_sign(gt_obj_verts, gt_obj_faces, self.volume_ind.unsqueeze(0), hash_resolution=4096)
-        sdf = torch.sqrt(dis) * (-2*sign+1)
-        np.save( f'{instance}_oracle', sdf.cpu().numpy())
+    #     import kaolin 
+    #     from kaolin.ops.mesh import index_vertices_by_faces
+    #     face_vertices = index_vertices_by_faces(gt_obj_verts, gt_obj_faces)
+    #     dis,_,_ = kaolin.metrics.trianglemesh.point_to_mesh_distance(self.volume_ind.unsqueeze(0), face_vertices)
+    #     sign = kaolin.ops.mesh.check_sign(gt_obj_verts, gt_obj_faces, self.volume_ind.unsqueeze(0), hash_resolution=4096)
+    #     sdf = torch.sqrt(dis) * (-2*sign+1)
+    #     # np.save( f'{instance}_oracle', sdf.cpu().numpy())
         
-        sdf = torch.clamp(sdf, -0.1, 0.1)
-        self.sdf_volume  = sdf.reshape(self.volume_size,self.volume_size,self.volume_size)
-        print('finish loading')
-        return 
+    #     sdf = torch.clamp(sdf, -0.1, 0.1)
+    #     self.sdf_volume  = sdf.reshape(self.volume_size,self.volume_size,self.volume_size)
+    #     print('finish loading')
+    #     return 
 
     def Distance(self,V):
         with torch.no_grad():

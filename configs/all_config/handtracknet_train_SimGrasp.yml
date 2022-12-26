@@ -1,5 +1,6 @@
 # dirs
 experiment_dir: train_debug
+resume_epoch: -1
 
 # data info
 data_config: data_info_SimGrasp.yml    # name of the .yml file in data_proc

@@ -13,7 +13,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from hand_network import *
-from hand_utils import  decanonicalize
 from utils import add_dict, merge_dict, ensure_dirs, cvt_numpy
 import pickle
 from copy import deepcopy
@@ -38,13 +37,13 @@ name_category_lst = {
 
 
 def load_obj_for_opt(root_dir, dataset_name, sdf_code_source, seq_frame, instance):
-    if 'HO3D' in dataset_name:
+    if dataset_name == 'HO3D':
         saved_model_pth = pjoin(root_dir, '../SimGrasp/SDF/examples/bottle_sim/ModelParameters/2000.pth')      
-        normalization_pth = os.path.join(root_dir, 'SDF/NormalizationParameters/%s/textured_simple.npz' % instance)
+        normalization_pth = os.path.join(root_dir, '../YCB/SDF/NormalizationParameters/%s/textured_simple.npz' % instance)
         normalization_params = np.load(normalization_pth)
-        gt_mesh_path = os.path.join(root_dir, f'models/{instance}/textured_simple.obj')
+        gt_mesh_path = os.path.join(root_dir, f'../YCB/models/{instance}/textured_simple.obj')
         if sdf_code_source == 'gt':
-            latent_code_pth = os.path.join(root_dir, 'SDF/2000/Codes/gt/%s.pth' % instance)
+            latent_code_pth = os.path.join(root_dir, '../YCB/SDF/2000/Codes/gt/%s.pth' % instance)
             recon_mesh_path = gt_mesh_path
         elif sdf_code_source == 'pred':
             latent_code_pth = os.path.join(root_dir, 'SDF/2000/Codes/pred/%s.pth' % seq_frame.replace('/', '_'))
@@ -52,7 +51,7 @@ def load_obj_for_opt(root_dir, dataset_name, sdf_code_source, seq_frame, instanc
         else:
             raise NotImplementedError
     elif dataset_name == 'SimGrasp':
-        if 'sim' not in instance:
+        if 'sim' not in instance:   # instance is object category
             instance = instance + '_sim'
         latent_code_dir = pjoin(root_dir, 'SDF/Reconstructions/%s/2000/Codes'%(instance))
         if sdf_code_source == 'gt':
@@ -65,8 +64,24 @@ def load_obj_for_opt(root_dir, dataset_name, sdf_code_source, seq_frame, instanc
         normalization_dir = pjoin(root_dir, 'SDF/NormalizationParameters/%s'%(instance))
         normalization_pth = os.path.join(normalization_dir, seq_frame[:5] + '.npz')
         normalization_params = np.load(normalization_pth)
-        saved_model_pth = pjoin(root_dir, 'SDF/%s/ModelParameters/2000.pth'%(instance))
+        saved_model_pth = pjoin(root_dir, 'SDF/examples/%s/ModelParameters/2000.pth'%(instance))
         gt_mesh_path = pjoin(root_dir, f'objs/{instance}/{seq_frame[:5]}.obj')
+    elif dataset_name == 'DexYCB':
+        gt_mesh_path = os.path.join(root_dir, f'../YCB/models/{instance}/textured_simple.obj')
+        if sdf_code_source == 'gt':       
+            latent_code_pth = os.path.join(root_dir, '../YCB/SDF/2000/Codes/gt/%s.pth' % instance)
+            recon_mesh_path = gt_mesh_path
+        elif sdf_code_source == 'pred':
+            latent_code_pth = pjoin(root_dir, 'SDF/2000/Codes/pred/%s.pth' % seq_frame.replace('+', '_'))
+            recon_mesh_path = latent_code_pth.replace('Codes', 'Meshes').replace('pred/', 'pred/%s_'%instance).replace('.pth', '.ply')
+        normalization_pth = os.path.join(root_dir, '../YCB/SDF/NormalizationParameters/%s/textured_simple.npz' % instance)
+        normalization_params = np.load(normalization_pth)
+        if 'bowl' in instance:
+            saved_model_pth = pjoin(root_dir, '../SimGrasp/examples/bowl_sim/ModelParameters/2000.pth')
+            print('Use SDF decoder for bowl!')
+        else:
+            saved_model_pth = pjoin(root_dir, '../SimGrasp/examples/bottle_sim/ModelParameters/2000.pth')
+            print('Use SDF decoder for bottle!')
     else:
         print(dataset_name)
         raise NotImplementedError
@@ -316,8 +331,6 @@ class ObjTrackModel_Optimization(nn.Module):
         ensure_dirs([self.save_folder])
 
         self.num_parts = cfg['num_parts']
-        # self.optimizer = Optimizer_obj(cfg)
-        # self.opti =  cfg['network']['optimizer']
         self.optimizer = gf_optimize_obj(cfg)
         self.sym = cfg['obj_sym']
         self.root_dir = cfg['data_cfg']['basepath']
@@ -327,15 +340,14 @@ class ObjTrackModel_Optimization(nn.Module):
         assert flag_dict['test_flag'] == True
 
         obj_info = load_obj_for_opt(self.root_dir, self.dataset_name, self.sdf_code_source, input[0]['file_name'][0], input[0]['category'][0])
-        if self.sdf_code_source == 'gt' :
-            self.optimizer.load_obj_oracle(input[0]['category'][0])
-        else:
-            self.optimizer.load_obj(obj_info, input[0]['category'][0], input[0]['gt_obj_pose'], input[0]['obj_points'])
+        # if self.sdf_code_source == 'gt' :
+        #     self.optimizer.load_obj_oracle(input[0]['category'][0], obj_info[3])
+        # else:
+        self.optimizer.load_obj(obj_info, input[0]['category'][0], input[0]['gt_obj_pose'], input[0]['obj_points'])
 
         last_frame_poses = None
         ret_dict_lst = []
-        # ins_name = input[0]['category'][0]
-        # gtmesh = trimesh.load(os.path.join(self.root_dir, f'../HO3D/models/{ins_name}/textured_simple.obj'))
+
         for i, data in enumerate(input):
             if last_frame_poses is not None:
                 data['jittered_obj_pose'] = last_frame_poses

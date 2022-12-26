@@ -34,16 +34,45 @@ This is the PyTorch implementation of [our paper](https://arxiv.org/abs/2209.120
   python setup.py install
   ```
 
-+ Download MANO pickle data-structures and save it to ```third_party/mano/models``` following [Manopth](https://github.com/hassony2/manopth).
++ Download MANO pickle data-structures and save it to ```third_party/mano/models``` following [Manopth](https://github.com/hassony2/manopth#download-mano-pickle-data-structures).
 
 
 ## Dataset
 
-+ Download SimGrasp dataset in (TODO).
++ Download SimGrasp dataset and our pre-computed SDF models in (TODO). We use [Curriculum-DeepSDF](https://github.com/haidongz-usc/Curriculum-DeepSDF) to obtain DeepSDF models taking the observed point clouds at frame 0 as input.
 
-+ Download HO3D dataset (version 3) in [here](https://cloud.tugraz.at/index.php/s/z8SCsWCYM3YcQWX?). 
++ Download HO3D dataset (version 3) from [their official website](https://cloud.tugraz.at/index.php/s/z8SCsWCYM3YcQWX?). Unzip 
 
-+ Download DexYCB dataset. 
++ Download DexYCB dataset from [their official website](https://dex-ycb.github.io/).
+
++ The data structure should be like
+
+ ```bash
+    data
+    ├── SimGrasp
+    │   ├── img # raw RGB and depth, which is not necessary for training and testing
+    │   ├── mask # Only used in the hand optimization stage in the full pipeline
+    │   ├── preproc
+    │   ├── splits
+    │   └── SDF
+    ├── YCB
+    │   ├── CatPose2InsPose.npy 
+    │   ├── models # Download from the DexYCB dataset
+    │   └── SDF
+    ├── HO3D
+    │   ├── calibration 
+    │   ├── train # Contain both HO3D_v3.zip and HO3D_v3_segmentations_rendered.zip
+    │   ├── splits
+    │   └── SDF
+    ├── DexYCB 
+    │   ├── 20200709-subject-01
+    │   ├── ...
+    │   ├── 20201022-subject-10
+    │   ├── calibration
+    │   ├── splits
+    │   └── SDF
+    └── exps				
+    ```
 
 
 ## Running
@@ -56,9 +85,15 @@ This is the PyTorch implementation of [our paper](https://arxiv.org/abs/2209.120
     CUDA_VISIBLE_DEVICES=0 python network/train.py --config handtracknet_train_SimGrasp.yml
   ```
 
-+ To track hand in a sqeuence.
++ To track hand using HandTrackNet in a sqeuence.
   ```bash
     CUDA_VISIBLE_DEVICES=0 python network/test.py --config handtracknet_test_SimGrasp.yml --num_worker 0
+  ```
+
++ Our full pipeline.
+  ```bash
+    CUDA_VISIBLE_DEVICES=0 python network/test.py --config objopt_test_HO3D.yml --num_worker 0 --save # 1. track object and save results
+    CUDA_VISIBLE_DEVICES=0 python network/test.py --config handopt_test_HO3D.yml --num_worker 0 # 2. track hand using saved object pose
   ```
 
 <!-- 
