@@ -20,26 +20,36 @@ class soft_L1(nn.Module):
         ret = torch.clamp(ret, min=0.0, max=100.0)
         return ret
 
-def CatCS2InsCS(x, normalization_params, instance):
-    R = change[instance]['rotation']
-    T = change[instance]['translation']
-    if isinstance(x, np.ndarray):
-        result = (x + normalization_params['offset'])*normalization_params['scale']
-        result = np.matmul(result, R.transpose(-1,-2))+T
-    elif  isinstance(x, torch.Tensor):
+def CatCS2InsCS(x, normalization_params, instance, dataset_name):
+    if dataset_name == 'SimGrasp': 
         result = (x + torch.FloatTensor(normalization_params['offset']).to(x.device))*torch.FloatTensor(normalization_params['scale']).to(x.device)
-        result = torch.matmul(result, torch.FloatTensor(R).to(x.device).transpose(-1,-2))+torch.FloatTensor(T).to(x.device)
+    elif dataset_name in ['HO3D', 'DexYCB']:   
+        R = change[instance]['rotation']
+        T = change[instance]['translation']
+        if isinstance(x, np.ndarray):
+            result = (x + normalization_params['offset'])*normalization_params['scale']
+            result = np.matmul(result, R.transpose(-1,-2))+T
+        elif  isinstance(x, torch.Tensor):
+            result = (x + torch.FloatTensor(normalization_params['offset']).to(x.device))*torch.FloatTensor(normalization_params['scale']).to(x.device)
+            result = torch.matmul(result, torch.FloatTensor(R).to(x.device).transpose(-1,-2))+torch.FloatTensor(T).to(x.device)
+    else:
+        raise NotImplementedError
     return result
 
-def InsCS2CatCS(x, normalization_params, instance):
-    R = change[instance]['rotation']
-    T = change[instance]['translation']
-    if isinstance(x, np.ndarray):
-        result = np.matmul(x-T, R)
-        result = result / normalization_params['scale'] - normalization_params['offset']
-    elif  isinstance(x, torch.Tensor):
-        result = torch.matmul(x-torch.FloatTensor(T).to(x.device), torch.FloatTensor(R).to(x.device))
-        result = result / torch.FloatTensor(normalization_params['scale']).to(x.device) - torch.FloatTensor(normalization_params['offset']).to(x.device)
+def InsCS2CatCS(x, normalization_params, instance, dataset_name):
+    if dataset_name == 'SimGrasp': 
+        result = x / torch.FloatTensor(normalization_params['scale']).to(x.device) - torch.FloatTensor(normalization_params['offset']).to(x.device)
+    elif dataset_name in ['HO3D', 'DexYCB']:   
+        R = change[instance]['rotation']
+        T = change[instance]['translation']
+        if isinstance(x, np.ndarray):
+            result = np.matmul(x-T, R)
+            result = result / normalization_params['scale'] - normalization_params['offset']
+        elif  isinstance(x, torch.Tensor):
+            result = torch.matmul(x-torch.FloatTensor(T).to(x.device), torch.FloatTensor(R).to(x.device))
+            result = result / torch.FloatTensor(normalization_params['scale']).to(x.device) - torch.FloatTensor(normalization_params['offset']).to(x.device)
+    else:
+        raise NotImplementedError
     return result
 
 def get_RT(instance):
@@ -110,13 +120,8 @@ class gf_optimize_obj():
         self.latent_code = torch.load(latent_code_pth)[0][0].to(self.device) # 1, 1, L
         
 
-        if self.dataset_name == 'HO3D' or self.dataset_name == 'DexYCB': # bottle, can, box, bowl
-            self.ins_volume_ind = CatCS2InsCS(self.volume_ind, normalization_param, instance)
-        elif self.dataset_name == 'SimGrasp':
-            self.ins_volume_ind = (self.volume_ind + torch.FloatTensor(normalization_param['offset']).to(self.device))*torch.FloatTensor(normalization_param['scale']).to(self.device)
-        else:
-            raise NotImplementedError
-        voxelsdf_pth = latent_code_pth.replace('Codes', 'voxelsdf').replace('.pth', '.npy')
+        self.ins_volume_ind = CatCS2InsCS(self.volume_ind, normalization_param, instance, self.dataset_name)
+        # voxelsdf_pth = latent_code_pth.replace('Codes', 'voxelsdf').replace('.pth', '.npy')
         # if os.path.isfile(voxelsdf_pth):
         #     print('load from ',voxelsdf_pth)
         #     sdfdata = np.load(voxelsdf_pth, allow_pickle=True)
@@ -137,9 +142,6 @@ class gf_optimize_obj():
                     self.sdf_volume[i*length:min(all_length, (i+1)*length)] = SDFDecoder(inputs)
                 self.sdf_volume = self.sdf_volume.reshape(self.volume_size,self.volume_size,self.volume_size) / normalization_param['scale'][0]       #[V^3, 1]
             os.makedirs(os.path.dirname(voxelsdf_pth), exist_ok=True)
-            # np.save(voxelsdf_pth[:-4], self.sdf_volume.cpu().numpy())
-            # np.save(voxelsdf_pth[:-4], {'sdf':self.sdf_volume.cpu().numpy(),'size':self.volume_size, 'scale': self.voxel_scale})
-            # print('save to ', voxelsdf_pth)
         # inputs = torch.cat([latent_inputs, self.ins_volume_ind], 1)
         # with torch.no_grad():
         #     self.sdf_volume = SDFDecoder(inputs).reshape(self.volume_size,self.volume_size,self.volume_size) / normalization_param['scale'][0]       #[V^3, 1]
@@ -147,9 +149,9 @@ class gf_optimize_obj():
         os.system(f"cp {self.latent_code_pth} {self.latent_code_pth.replace('.pth', '_update.pth')}")
         self.saved_model_pth = saved_model_pth
         self.obj_merged_pc = torch.matmul(init_pc.float() - init_pose['translation'].squeeze(-1), init_pose['rotation'].squeeze(1)).cuda()
-        self.obj_merged_pc = CatCS2InsCS(self.obj_merged_pc, normalization_param, instance)
+        self.obj_merged_pc = CatCS2InsCS(self.obj_merged_pc, normalization_param, instance, self.dataset_name)
         camera = torch.matmul(torch.zeros((1,1,3)) - init_pose['translation'].squeeze(-1), init_pose['rotation'].squeeze(1)).cuda()
-        camera = CatCS2InsCS(camera, normalization_param, instance)
+        camera = CatCS2InsCS(camera, normalization_param, instance, self.dataset_name)
         self.obj_merged_normal = self.estimate_normal(self.obj_merged_pc, camera)
         self.obj_merge_num = 1
         self.normalization_param = normalization_param
@@ -309,9 +311,9 @@ class gf_optimize_obj():
             queried_sdf = self.Distance(pcld_flat)
             good_mask = torch.where(queried_sdf.abs()<0.02)  
             final_pcld = final_pcld[:,good_mask[0]] 
-            final_pcld = CatCS2InsCS(final_pcld, self.normalization_param, self.instance)
+            final_pcld = CatCS2InsCS(final_pcld, self.normalization_param, self.instance, self.dataset_name)
             camera_center = torch.matmul(torch.zeros((1,1,3)).cuda() - ret_dict['translation'].transpose(-1,-2), ret_dict['rotation'])
-            camera_center = CatCS2InsCS(camera_center, self.normalization_param, self.instance)
+            camera_center = CatCS2InsCS(camera_center, self.normalization_param, self.instance, self.dataset_name)
 
             self.obj_merge_num += 1
             choose_num = self.obj_merged_pc.shape[1] // self.obj_merge_num

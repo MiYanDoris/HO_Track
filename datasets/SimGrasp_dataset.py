@@ -16,15 +16,17 @@ from data_utils import farthest_point_sample, mat_from_rvec, split_dataset, jitt
 
 """
 ShapeNet data organization:
-render/
     img/
-        instance_hand_camera/
+        ...
             depth.png
             mask.png
     preproc/
         xxx.npz
         ...
-    meta.txt
+    objs/
+    masks/
+    SDF/
+    splits
 """
 
 category2scale = {

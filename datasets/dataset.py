@@ -10,10 +10,12 @@ import numpy as np
 
 base_dir = os.path.dirname(__file__)
 sys.path.append(pjoin(base_dir, '..', '..'))
-
-from datasets.SimGrasp_dataset import SimGraspDataset
-from HO3D_dataset import HO3DDataset
 from configs.config import get_config
+
+from SimGrasp_dataset import SimGraspDataset
+from HO3D_dataset import HO3DDataset
+from DexYCB_dataset import DexYCBDataset
+
 
 def choose_dataset(name):
     if name == 'SimGrasp':

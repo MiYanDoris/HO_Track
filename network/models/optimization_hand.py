@@ -6,7 +6,7 @@ from pose_utils.rotations import matrix_to_unit_quaternion,compute_rotation_matr
 from third_party.DeepSDF.deep_sdf_decoder import Decoder
 from third_party.mano.our_mano import OurManoLayer
 import cv2
-from optimization_obj import CatCS2InsCS, InsCS2CatCS
+from optimization_obj import CatCS2InsCS
 from os.path import join as pjoin
 
 
@@ -196,12 +196,7 @@ class gf_optimize_hand_pose():
         self.latent_code = torch.load(latent_code_pth)[0][0].to(self.device) # 1, 1, L
 
         # coordinate transformation
-        if self.dataset_name == 'HO3D' or self.dataset_name == 'DexYCB': # bottle, can, box, bowl
-            ins_volume_ind = CatCS2InsCS(self.volume_ind, self.normalization_param, instance)
-        elif self.dataset_name == 'newShapeNet':
-            ins_volume_ind = (self.volume_ind + torch.FloatTensor(self.normalization_param['offset']).to(self.device))*torch.FloatTensor(self.normalization_param['scale']).to(self.device)
-        else:
-            raise NotImplementedError
+        ins_volume_ind = CatCS2InsCS(self.volume_ind, self.normalization_param, instance, self.dataset_name)
 
         latent_inputs = self.latent_code.expand(ins_volume_ind.shape[0], -1)
         inputs = torch.cat([latent_inputs, ins_volume_ind], 1)
@@ -314,11 +309,11 @@ class gf_optimize_hand_pose():
             mask = cv2.resize(mask, (640, 480), interpolation=cv2.INTER_NEAREST)
             self.gt_background_mask =  mask.sum(axis=-1) == 0
         elif self.data_config == 'data_info_SimGrasp.yml':
-            silhouette_pth = pjoin(self.root_dir, 'img/%s/seq/%s/mask.png' % (category, file_name))
+            silhouette_pth = pjoin(self.root_dir, 'masks/%s/seq/%s.png' % (category, file_name))
             maskimg = cv2.imread(silhouette_pth)
             self.gt_background_mask = maskimg.sum(axis=-1) == 0
         elif self.data_config == 'data_info_DexYCB.yml':
-            silhouette_pth = pjoin(self.root_dir, 'tarfolder/%s/%s/%s/labels_%s.npz' % (file_name.split('+')[0],file_name.split('+')[1],file_name.split('+')[2],file_name.split('+')[3]))
+            silhouette_pth = pjoin(self.root_dir, '%s/%s/%s/labels_%s.npz' % (file_name.split('+')[0],file_name.split('+')[1],file_name.split('+')[2],file_name.split('+')[3]))
             color_pth = silhouette_pth.replace('labels', 'color').replace('npz', 'jpg')
             rgbimg = cv2.imread(color_pth)
             maskimg = np.load(silhouette_pth)['seg']

@@ -1,18 +1,9 @@
-import matplotlib
-from matplotlib.collections import LineCollection
-from matplotlib import cm
-from matplotlib.patches import Circle, Wedge, Polygon
-from matplotlib.colors import ListedColormap, LinearSegmentedColormap
-from matplotlib.collections import PatchCollection
-
-import matplotlib.pyplot as plt  # matplotlib.use('Agg') # TkAgg
-from mpl_toolkits.mplot3d import Axes3D
-from pylab import *
+import matplotlib.pyplot as plt  
+# from pylab import *
 import os
-import cv2
 from os.path import join as pjoin
 from utils import ensure_dirs
-
+import numpy as np
 
 def set_axes_equal(ax, limits=None, labels=True):
     '''Make axes of 3D plot have equal scale so that spheres appear as spheres,

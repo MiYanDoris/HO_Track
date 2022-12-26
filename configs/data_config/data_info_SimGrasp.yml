@@ -1,4 +1,4 @@
-basepath: 'SimGrasp/render/'
+basepath: 'SimGrasp'
 dataset_name: SimGrasp
 num_frames: 100
 

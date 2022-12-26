@@ -17,7 +17,7 @@ from utils import add_dict, merge_dict, ensure_dirs, cvt_numpy
 import pickle
 from copy import deepcopy
 import trimesh
-from optimization_obj import CatCS2InsCS, InsCS2CatCS, gf_optimize_obj, get_RT
+from optimization_obj import InsCS2CatCS, gf_optimize_obj, get_RT
 from optimization_hand import gf_optimize_hand_pose, gf_optimize_hand_shape
 from third_party.mano.our_mano import OurManoLayer
 from datasets.data_utils import farthest_point_sample
@@ -401,11 +401,8 @@ class ObjTrackModel_Optimization(nn.Module):
             sample_idx = farthest_point_sample(pred_mesh, 2048, self.device)
             pred_mesh = pred_mesh[sample_idx]
         if self.sdf_code_source != 'gt':
-            if self.dataset_name == 'HO3D' or self.dataset_name == 'DexYCB':
-                pred_mesh = InsCS2CatCS(pred_mesh, obj_info[1], input[0]['category'][0])
-            else:
-                pred_mesh = pred_mesh/ torch.FloatTensor(obj_info[1]['scale']).to(self.device) - torch.FloatTensor(obj_info[1]['offset']).to(self.device)
-
+            pred_mesh = InsCS2CatCS(pred_mesh, obj_info[1], input[0]['category'][0], self.dataset_name)
+ 
         # ret_dict_lst will update itself
         total_loss = {}
         save_dict = {}

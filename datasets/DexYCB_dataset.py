@@ -1,25 +1,20 @@
 import os
 import sys
-from tracemalloc import start
 import numpy as np
 from os.path import join as pjoin
 import argparse
 import yaml
-from torch.utils import data
 from PIL import Image
-import cv2
 import open3d as o3d
 base_dir = os.path.dirname(__file__)
 sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, '..'))
 sys.path.append(os.path.join(base_dir, '..', '..'))
 from network.models.hand_utils import handkp2palmkp
-from network.models.our_mano import handkp_addkp
 from configs.config import get_config
 from data_utils import farthest_point_sample, jitter_obj_pose, mat_from_rvec, pose_list_to_dict,jitter_hand_kp,OBB, matrix_to_unit_quaternion
 import torch
 from manopth.manolayer import ManoLayer
-import trimesh
 from copy import deepcopy
 
 """
@@ -248,12 +243,12 @@ class DexYCBDataset:
         self.cfg = cfg
         self.mode = mode
         self.category_lst = cfg['obj_category']
+        self.root_dir = cfg['data_cfg']['basepath']
         if 'pred_obj_pose_dir' in cfg:
             self.pred_obj_pose_dir = cfg['pred_obj_pose_dir']
         else:
             self.pred_obj_pose_dir = None
         self.device = cfg['device']
-        self.root_dir = cfg['root_dir']
         self.num_points = cfg['num_points']
         self.hand_jitter_config = cfg['hand_jitter_cfg']
         self.handframe = cfg['network']['handframe']
@@ -270,7 +265,7 @@ class DexYCBDataset:
 
         cnt = 0
         for category in self.category_lst:
-            our_clean_split = np.load(pjoin(cfg['root_dir'], 'splits/%s_%s.npy' % (self.mode, category)),allow_pickle=True).item()
+            our_clean_split = np.load(pjoin(self.root_dir, 'splits/%s_%s.npy' % (self.mode, category)),allow_pickle=True).item()
             for filename in our_clean_split.keys():
                 if filename in invalid_lst:
                     continue

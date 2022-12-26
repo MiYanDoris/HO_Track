@@ -16,7 +16,7 @@ This is the PyTorch implementation of [our paper](https://arxiv.org/abs/2209.120
 + We recommend using [Anaconda](https://www.anaconda.com/) to create an environment, by running the following:
 
   ```bash
-  conda create -n hotrack python=3.8
+  conda env create -n hotrack python=3.8
   conda activate hotrack
   ```
 
@@ -34,10 +34,11 @@ This is the PyTorch implementation of [our paper](https://arxiv.org/abs/2209.120
   python setup.py install
   ```
 
-+ Download MANO pickle data-structures and save it to ```third_party/mano/models``` following [Manopth](https://github.com/hassony2/manopth#download-mano-pickle-data-structures).
 
 
 ## Dataset
+
++ Download MANO pickle data-structures and save it to ```third_party/mano/models``` following [Manopth](https://github.com/hassony2/manopth#download-mano-pickle-data-structures). You also need to install Manopth if you want to play with DexYCB dataset.
 
 + Download SimGrasp dataset and our pre-computed SDF models in (TODO). We use [Curriculum-DeepSDF](https://github.com/haidongz-usc/Curriculum-DeepSDF) to obtain DeepSDF models taking the observed point clouds at frame 0 as input.
 
@@ -45,12 +46,17 @@ This is the PyTorch implementation of [our paper](https://arxiv.org/abs/2209.120
 
 + Download DexYCB dataset from [their official website](https://dex-ycb.github.io/).
 
-+ The data structure should be like
+### Dataset Folder Structure
+
+<details>
+<summary><b>See here for the organization of dataset folders.</b> </summary> 
+<p>
 
  ```bash
     data
     ├── SimGrasp
     │   ├── img # raw RGB and depth, which is not necessary for training and testing
+    │   ├── objs
     │   ├── mask # Only used in the hand optimization stage in the full pipeline
     │   ├── preproc
     │   ├── splits
@@ -73,6 +79,8 @@ This is the PyTorch implementation of [our paper](https://arxiv.org/abs/2209.120
     │   └── SDF
     └── exps				
     ```
+</p>
+</details>
 
 
 ## Running
