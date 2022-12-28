@@ -63,11 +63,11 @@ For more information, please visit our [project page](https://arxiv.org/abs/2209
 ```bash
   data
   ├── SimGrasp
-  │   ├── img # raw RGB and depth from SimGrasp_rawimg.zip, which is not used in training and testing
+  │   ├── img # raw RGB and depth from SimGrasp_rawimg.zip, which is not necessary in training and testing
   │   ├── objs  # in SimGrasp.zip
   │   ├── masks # in SimGrasp.zip
   │   ├── preproc # in SimGrasp.zip
-  │   ├── splits  # in pretrained_models.zip
+  │   ├── splits  # in SimGrasp.zip
   │   └── SDF # in pretrained_models.zip
   ├── YCB
   │   ├── CatPose2InsPose.npy  # in pretrained_models.zip
