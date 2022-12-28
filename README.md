@@ -43,7 +43,7 @@ For more information, please visit our [project page](https://arxiv.org/abs/2209
 
 + Download MANO pickle data-structures and save it to ```third_party/mano/models``` following [Manopth](https://github.com/hassony2/manopth#download-mano-pickle-data-structures). You also need to install [Manopth](https://github.com/hassony2/manopth) if you want to play with DexYCB dataset.
 
-+ Download SimGrasp dataset and our pretrained models from (TODO). The pretrained DeepSDF models for object are obtained by [Curriculum-DeepSDF](https://github.com/haidongz-usc/Curriculum-DeepSDF) taking as input the observed point clouds at frame 0 of each testing trajectories.
++ Download SimGrasp dataset and our pretrained models from (TODO). We use [Curriculum-DeepSDF](https://github.com/haidongz-usc/Curriculum-DeepSDF) to initialize SDF models for objects taking as input the observed point clouds at frame 0 of each testing trajectories. You don't have to install Curriculum-DeepSDF.
 
 + Download HO3D dataset (version 3) from [their official website](https://cloud.tugraz.at/index.php/s/z8SCsWCYM3YcQWX?).  
 
