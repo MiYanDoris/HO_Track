@@ -1,6 +1,6 @@
 # [AAAI 2023] Tracking and Reconstructing Hand Object Interactions from Point Cloud Sequences in the Wild
 
-![teaser](teaser.pdf)
+![teaser](teaser.png)
 
 ## Introduction
 
@@ -41,11 +41,11 @@ For more information, please visit our [project page](https://arxiv.org/abs/2209
 
 ## Dataset
 
-+ Download MANO pickle data-structures and save it to ```third_party/mano/models``` following [Manopth](https://github.com/hassony2/manopth#download-mano-pickle-data-structures). You also need to install Manopth if you want to play with DexYCB dataset.
++ Download MANO pickle data-structures and save it to ```third_party/mano/models``` following [Manopth](https://github.com/hassony2/manopth#download-mano-pickle-data-structures). You also need to install [Manopth](https://github.com/hassony2/manopth) if you want to play with DexYCB dataset.
 
-+ Download SimGrasp dataset and our pretrained models in (TODO). We use [Curriculum-DeepSDF](https://github.com/haidongz-usc/Curriculum-DeepSDF) to get DeepSDF models taking as input the observed point clouds at frame 0 of each testing trajectories.
++ Download SimGrasp dataset and our pretrained models from (TODO). The pretrained DeepSDF models for object are obtained by [Curriculum-DeepSDF](https://github.com/haidongz-usc/Curriculum-DeepSDF) taking as input the observed point clouds at frame 0 of each testing trajectories.
 
-+ Download HO3D dataset (version 3) from [their official website](https://cloud.tugraz.at/index.php/s/z8SCsWCYM3YcQWX?). Unzip 
++ Download HO3D dataset (version 3) from [their official website](https://cloud.tugraz.at/index.php/s/z8SCsWCYM3YcQWX?).  
 
 + Download DexYCB dataset from [their official website](https://dex-ycb.github.io/).
 
@@ -63,38 +63,35 @@ For more information, please visit our [project page](https://arxiv.org/abs/2209
 ```bash
   data
   ├── SimGrasp
-  │   ├── img # raw RGB and depth, which is not necessary for training and testing
-  │   ├── objs
-  │   ├── mask # Only used in the hand optimization stage in the full pipeline
-  │   ├── preproc
-  │   ├── splits
-  │   └── SDF
+  │   ├── img # raw RGB and depth from SimGrasp_rawimg.zip, which is not used in training and testing
+  │   ├── objs  # in SimGrasp.zip
+  │   ├── masks # in SimGrasp.zip
+  │   ├── preproc # in SimGrasp.zip
+  │   ├── splits  # in pretrained_models.zip
+  │   └── SDF # in pretrained_models.zip
   ├── YCB
-  │   ├── CatPose2InsPose.npy 
+  │   ├── CatPose2InsPose.npy  # in pretrained_models.zip
   │   ├── models # Download from the DexYCB dataset
-  │   └── SDF
+  │   └── SDF # in pretrained_models.zip
   ├── HO3D
-  │   ├── calibration 
-  │   ├── train # Contain both HO3D_v3.zip and HO3D_v3_segmentations_rendered.zip
-  │   ├── splits
-  │   └── SDF
+  │   ├── calibration
+  │   ├── train # include both HO3D_v3.zip and HO3D_v3_segmentations_rendered.zip
+  │   ├── splits  # in pretrained_models.zip
+  │   └── SDF # in pretrained_models.zip
   ├── DexYCB 
   │   ├── 20200709-subject-01
   │   ├── ...
   │   ├── 20201022-subject-10
   │   ├── calibration
-  │   ├── splits
-  │   └── SDF
-  └── exps				
+  │   ├── splits  # in pretrained_models.zip
+  │   └── SDF  # in pretrained_models.zip
+  └── exps	# in pretrained_models.zip			
   ```
 </p>
 </details>
 
 
 ## Running
-+ Somethings you should notice
-  
-  + All configs are in `configs/all_config`. You need to change root_list and mano_path_lst in `configs/config.py`. 
   
 + To train HandTrackNet. The test results reported during training is based on single-frame instead of tracking a sequence.
   ```bash
